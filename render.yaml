@@ -25,7 +25,7 @@ services:
     region: singapore # closest Render region to J&K; must match the database
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
-    healthCheckPath: /api/docs
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production

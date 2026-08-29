@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 
 import { PrismaModule } from './prisma/prisma.module';
+import { HealthController } from './health.controller';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
@@ -52,6 +53,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     CalendarModule,
     DashboardModule,
   ],
+  controllers: [HealthController],
   providers: [
     // Authentication first, then role enforcement — every route is protected
     // unless explicitly marked @Public().
