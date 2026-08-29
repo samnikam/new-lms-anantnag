@@ -12,7 +12,9 @@
     "db:seed": "ts-node prisma/seed.ts",
     "postinstall": "prisma generate"
   },
-  "prisma": { "seed": "ts-node prisma/seed.ts" },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
+  },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
     "@nestjs/config": "^3.3.0",
@@ -35,6 +37,7 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pdfkit": "^0.15.2",
+    "prisma": "^5.22.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.1"
@@ -47,7 +50,6 @@
     "@types/node": "^22.10.2",
     "@types/passport-jwt": "^4.0.1",
     "@types/pdfkit": "^0.13.9",
-    "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.2"

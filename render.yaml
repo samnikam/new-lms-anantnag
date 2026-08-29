@@ -10,6 +10,9 @@ databases:
     plan: free
     databaseName: lms_portal
     user: lms
+    # Must match the API's region: Render's internal connection string does
+    # not resolve across regions.
+    region: singapore
 
 services:
   # ── API: NestJS in a container ──────────────────────────────────────────
@@ -19,7 +22,7 @@ services:
     name: lms-portal-api
     runtime: docker
     plan: free
-    region: singapore # closest Render region to J&K
+    region: singapore # closest Render region to J&K; must match the database
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /api/docs
