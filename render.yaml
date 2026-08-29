@@ -1,9 +1,25 @@
-# Render blueprint for the API. The portal itself is deployed on Vercel.
+# Single-platform deployment: API, portal and PostgreSQL all on Render.
+#
+# Render reads this blueprint and creates every service below in one project.
+# The only value you set by hand is CORS_ORIGIN (see the note on the API
+# service) — a blueprint cannot wire it automatically, because the portal and
+# the API would then reference each other in a cycle.
+
+databases:
+  - name: lms-portal-db
+    plan: free
+    databaseName: lms_portal
+    user: lms
+
 services:
+  # ── API: NestJS in a container ──────────────────────────────────────────
+  # Needs an always-on process, not a serverless function: it runs the
+  # Socket.IO broadcast gateway and the @Cron device-heartbeat sweep.
   - type: web
     name: lms-portal-api
     runtime: docker
     plan: free
+    region: singapore # closest Render region to J&K
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     healthCheckPath: /api/docs
@@ -13,17 +29,51 @@ services:
       - key: PORT
         value: 4000
       - key: DATABASE_URL
-        sync: false          # paste the Neon connection string in the dashboard
+        fromDatabase:
+          name: lms-portal-db
+          property: connectionString
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
         generateValue: true
+      # Set this once, after the first deploy, to the portal's own URL:
+      #   https://lms-portal-web.onrender.com
+      # The portal and API are separate origins, so the refresh cookie is a
+      # third-party cookie — the backend already sends SameSite=None; Secure.
       - key: CORS_ORIGIN
-        sync: false          # https://<your-project>.vercel.app
-      - key: ALLOW_VERCEL_PREVIEWS
-        value: "true"
+        sync: false
+      # The free plan has no persistent disk, so uploads live only until the
+      # next deploy or sleep. Attach a paid disk, or move UploadsController to
+      # S3-compatible storage, before real use.
       - key: UPLOAD_DIR
         value: /tmp/uploads
-# NOTE: the free plan has no persistent disk, so uploaded files live only until
-# the next deploy or sleep. Move UPLOAD_DIR onto a paid disk, or switch
-# UploadsController to S3-compatible storage, before real use.
+
+  # ── Portal: static Vite build served from Render's CDN ──────────────────
+  - type: web
+    name: lms-portal-web
+    runtime: static
+    buildCommand: npm install && npm run build --workspace frontend
+    staticPublishPath: ./frontend/dist
+    envVars:
+      # Resolves to the API's hostname; the client prefixes https:// when the
+      # value arrives without a scheme.
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: lms-portal-api
+          property: host
+    routes:
+      # Client-side routing: every unknown path falls through to the SPA.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin

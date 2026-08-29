@@ -3,10 +3,20 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 /**
  * In development this stays relative so Vite proxies to localhost:4000.
  * In production VITE_API_URL points at the deployed API origin.
+ *
+ * Render supplies a bare hostname when the value is wired with
+ * `property: host`, so a missing scheme is filled in rather than producing a
+ * relative URL that would silently resolve against the portal's own origin.
  */
-export const API_BASE = import.meta.env.VITE_API_URL
-  ? `${String(import.meta.env.VITE_API_URL).replace(/\/$/, '')}/api`
-  : '/api';
+function resolveApiBase(): string {
+  const configured = String(import.meta.env.VITE_API_URL ?? '').trim();
+  if (!configured) return '/api';
+
+  const withScheme = /^https?:\/\//i.test(configured) ? configured : `https://${configured}`;
+  return `${withScheme.replace(/\/+$/, '')}/api`;
+}
+
+export const API_BASE = resolveApiBase();
 
 export const api = axios.create({
   baseURL: API_BASE,
