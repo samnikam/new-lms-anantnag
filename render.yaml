@@ -1,0 +1,29 @@
+# Render blueprint for the API. The portal itself is deployed on Vercel.
+services:
+  - type: web
+    name: lms-portal-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/docs
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        sync: false          # paste the Neon connection string in the dashboard
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: CORS_ORIGIN
+        sync: false          # https://<your-project>.vercel.app
+      - key: ALLOW_VERCEL_PREVIEWS
+        value: "true"
+      - key: UPLOAD_DIR
+        value: /tmp/uploads
+# NOTE: the free plan has no persistent disk, so uploaded files live only until
+# the next deploy or sleep. Move UPLOAD_DIR onto a paid disk, or switch
+# UploadsController to S3-compatible storage, before real use.

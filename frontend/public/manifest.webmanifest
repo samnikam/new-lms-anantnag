@@ -1,0 +1,10 @@
+{
+  "name": "Hybrid Learning LMS Portal",
+  "short_name": "LMS Portal",
+  "description": "Hybrid Learning LMS — PWD J&K, R&B Division Pahalgam",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a3f75",
+  "icons": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "hybrid-lms-portal",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Hybrid Learning LMS Portal — GEM/2026/B/7822845, PWD J&K R&B Division Pahalgam",
+  "workspaces": ["backend", "frontend"],
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm --workspace backend run start:dev",
+    "dev:web": "npm --workspace frontend run dev",
+    "build": "npm --workspace backend run build && npm --workspace frontend run build",
+    "db:migrate": "npm --workspace backend run db:migrate",
+    "db:seed": "npm --workspace backend run db:seed"
+  },
+  "devDependencies": { "concurrently": "^9.1.0" }
+}

@@ -1,0 +1,956 @@
+// Hybrid Learning LMS Portal — PostgreSQL schema
+// Source: GeM Bid GEM/2026/B/7822845, PWD J&K R&B Division Pahalgam
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── Enums ───────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  ACADEMIC_ADMIN
+  TEACHER
+  STUDENT
+  PARENT
+  CONTENT_MANAGER
+  DEPT_OVERSIGHT // read-only buyer/department monitoring
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum LinkStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  REVOKED
+}
+
+enum DeviceType {
+  INTERACTIVE_PANEL
+  OPS_PC
+  PTZ_CAMERA
+  WEBCAM
+  UPS
+  ROUTER
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  MAINTENANCE
+  DECOMMISSIONED
+}
+
+enum ContentState {
+  DRAFT
+  IN_REVIEW
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ResourceType {
+  VIDEO
+  PDF
+  DOCUMENT
+  PRESENTATION
+  IMAGE
+  TEXT
+  EXTERNAL_LINK
+  SCORM
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  TRANSFERRED
+  WITHDRAWN
+  COMPLETED
+}
+
+enum SessionMode {
+  MEETING // standard 1:1 Zoom-style join
+  BROADCAST // one studio -> many classrooms (relay)
+}
+
+enum SessionStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+  FALLBACK_RECORDED // live link dropped, serving recording
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+  EXCUSED
+  LEFT_EARLY
+}
+
+enum AttendanceKind {
+  INDIVIDUAL // personal-device login attendance
+  ROOM_LEVEL // classroom roll-call / headcount
+}
+
+enum SubmissionStatus {
+  DRAFT
+  SUBMITTED
+  LATE
+  GRADED
+  RETURNED
+  RESUBMITTED
+}
+
+enum QuestionType {
+  MCQ_SINGLE
+  MCQ_MULTI
+  TRUE_FALSE
+  SHORT_ANSWER
+  NUMERIC
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  AUTO_SUBMITTED
+  GRADED
+}
+
+enum ProctorFlagType {
+  TAB_SWITCH
+  WINDOW_BLUR
+  FULLSCREEN_EXIT
+  TIME_EXPIRED
+  PASTE_DETECTED
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SMS
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  FAILED
+}
+
+enum TicketSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TicketStatus {
+  OPEN
+  ASSIGNED
+  ESCALATED
+  RESOLVED
+  CLOSED
+}
+
+enum EscalationLevel {
+  SITE
+  ACADEMIC_ADMIN
+  SUPER_ADMIN
+}
+
+// ─────────────────── Identity & access control ───────────────────
+
+model User {
+  id           String     @id @default(uuid())
+  email        String?    @unique
+  mobile       String?    @unique
+  username     String?    @unique
+  passwordHash String
+  fullName     String
+  role         Role
+  status       UserStatus @default(ACTIVE)
+  locale       String     @default("en")
+
+  emailVerifiedAt  DateTime?
+  mobileVerifiedAt DateTime?
+  lastLoginAt      DateTime?
+  failedLogins     Int       @default(0)
+  lockedUntil      DateTime?
+
+  siteId String?
+  site   Site?   @relation(fields: [siteId], references: [id])
+
+  refreshTokens    RefreshToken[]
+  parentLinks      ParentStudentLink[] @relation("ParentSide")
+  studentLinks     ParentStudentLink[] @relation("StudentSide")
+  enrollments      Enrollment[]
+  taughtCourses    CourseTeacher[]
+  attendance       Attendance[]        @relation("AttendanceStudent")
+  markedAttendance Attendance[]        @relation("AttendanceMarker")
+  submissions      Submission[]
+  attempts         QuizAttempt[]
+  progress         Progress[]
+  certificates     Certificate[]
+  notifications    Notification[]
+  auditLogs        AuditLog[]
+  ticketsRaised    SupportTicket[]     @relation("TicketRequester")
+  ticketsAssigned  SupportTicket[]     @relation("TicketAssignee")
+  hostedSessions   LiveSession[]       @relation("SessionHost")
+  announcements    Announcement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role, status])
+  @@index([siteId])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  userAgent String?
+  ip        String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model ParentStudentLink {
+  id         String     @id @default(uuid())
+  parentId   String
+  parent     User       @relation("ParentSide", fields: [parentId], references: [id], onDelete: Cascade)
+  studentId  String
+  student    User       @relation("StudentSide", fields: [studentId], references: [id], onDelete: Cascade)
+  relation   String     @default("guardian")
+  status     LinkStatus @default(PENDING)
+  approvedBy String?
+  approvedAt DateTime?
+  createdAt  DateTime   @default(now())
+
+  @@unique([parentId, studentId])
+  @@index([studentId])
+}
+
+// ───────────────── Sites, classrooms, devices [NEW] ─────────────────
+
+model Site {
+  id            String  @id @default(uuid())
+  code          String  @unique
+  name          String
+  consigneeAddr String?
+  district      String?
+  contactName   String?
+  contactPhone  String?
+  internetLink  String? // ISP / connection reference (21 connections in bid)
+  active        Boolean @default(true)
+
+  classrooms Classroom[]
+  users      User[]
+  batches    Batch[]
+  tickets    SupportTicket[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Classroom {
+  id       String  @id @default(uuid())
+  siteId   String
+  site     Site    @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  name     String
+  code     String  @unique
+  capacity Int?
+  isStudio Boolean @default(false) // one of the 2 broadcast studio rooms
+  active   Boolean @default(true)
+
+  // kiosk-mode device login credentials (separate from personal accounts)
+  kioskUsername     String? @unique
+  kioskPasswordHash String?
+
+  devices          Device[]
+  broadcastTargets BroadcastTarget[]
+  roomAttendance   Attendance[]      @relation("AttendanceRoom")
+  sessions         LiveSession[]     @relation("SessionOriginRoom")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([siteId])
+}
+
+model Device {
+  id          String       @id @default(uuid())
+  classroomId String
+  classroom   Classroom    @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  type        DeviceType
+  serialNo    String       @unique
+  model       String?
+  status      DeviceStatus @default(OFFLINE)
+  lastSeenAt  DateTime?
+  ipAddress   String?
+  appVersion  String?
+  notes       String?
+
+  heartbeats DeviceHeartbeat[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([classroomId, status])
+}
+
+model DeviceHeartbeat {
+  id        String   @id @default(uuid())
+  deviceId  String
+  device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  at        DateTime @default(now())
+  cpu       Float?
+  memory    Float?
+  bandwidth Float?
+  online    Boolean  @default(true)
+
+  @@index([deviceId, at])
+}
+
+// ─────────────────────── Academic structure ───────────────────────
+
+model AcademicYear {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  startDate DateTime
+  endDate   DateTime
+  isCurrent Boolean  @default(false)
+
+  batches Batch[]
+  events  CalendarEvent[]
+}
+
+model Batch {
+  id             String       @id @default(uuid())
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
+  siteId         String?
+  site           Site?        @relation(fields: [siteId], references: [id])
+  name           String
+  grade          String?
+  section        String?
+  active         Boolean      @default(true)
+
+  enrollments  Enrollment[]
+  liveSessions LiveSession[]
+  assignments  Assignment[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([academicYearId, name])
+  @@index([siteId])
+}
+
+// ───────────────────── Courses & content ─────────────────────
+
+model Course {
+  id            String       @id @default(uuid())
+  code          String       @unique
+  title         String
+  description   String?
+  category      String?
+  level         String?
+  objectives    String?
+  durationHours Int?
+  thumbnailUrl  String?
+  state         ContentState @default(DRAFT)
+  version       Int          @default(1)
+  clonedFromId  String?
+
+  // completion rules
+  requiredLessonPct Int @default(100)
+  requiredQuizPct   Int @default(0)
+  passMark          Int @default(40)
+
+  prerequisites CoursePrerequisite[] @relation("CourseSide")
+  requiredBy    CoursePrerequisite[] @relation("PrereqSide")
+  modules       Module[]
+  teachers      CourseTeacher[]
+  enrollments   Enrollment[]
+  liveSessions  LiveSession[]
+  assignments   Assignment[]
+  quizzes       Quiz[]
+  questions     Question[]
+  certificates  Certificate[]
+  progress      Progress[]
+  announcements Announcement[]
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([state])
+}
+
+model CoursePrerequisite {
+  id           String @id @default(uuid())
+  courseId     String
+  course       Course @relation("CourseSide", fields: [courseId], references: [id], onDelete: Cascade)
+  prereqId     String
+  prerequisite Course @relation("PrereqSide", fields: [prereqId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, prereqId])
+}
+
+model CourseTeacher {
+  id        String   @id @default(uuid())
+  courseId  String
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  teacherId String
+  teacher   User     @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  isLead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([courseId, teacherId])
+}
+
+model Module {
+  id          String  @id @default(uuid())
+  courseId    String
+  course      Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  position    Int     @default(0)
+
+  lessons Lesson[]
+
+  @@index([courseId, position])
+}
+
+model Lesson {
+  id          String       @id @default(uuid())
+  moduleId    String
+  module      Module       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  title       String
+  content     String?
+  position    Int          @default(0)
+  durationMin Int?
+  state       ContentState @default(DRAFT)
+  isRequired  Boolean      @default(true)
+
+  resources Resource[]
+  progress  Progress[]
+
+  @@index([moduleId, position])
+}
+
+model Resource {
+  id             String       @id @default(uuid())
+  lessonId       String?
+  lesson         Lesson?      @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  title          String
+  type           ResourceType
+  url            String
+  fileKey        String?
+  mimeType       String?
+  sizeBytes      Int?
+  position       Int          @default(0)
+  isDownloadable Boolean      @default(false) // offline content packs [NEW]
+  inLibrary      Boolean      @default(false) // reusable content library
+  version        Int          @default(1)
+  state          ContentState @default(DRAFT)
+
+  createdAt DateTime @default(now())
+
+  @@index([lessonId, position])
+}
+
+model OfflinePack {
+  id          String    @id @default(uuid())
+  courseId    String
+  classroomId String?
+  fileKey     String
+  sizeBytes   Int
+  builtAt     DateTime  @default(now())
+  expiresAt   DateTime?
+}
+
+model Enrollment {
+  id          String           @id @default(uuid())
+  studentId   String
+  student     User             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseId    String
+  course      Course           @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  batchId     String?
+  batch       Batch?           @relation(fields: [batchId], references: [id])
+  status      EnrollmentStatus @default(ACTIVE)
+  enrolledAt  DateTime         @default(now())
+  completedAt DateTime?
+
+  @@unique([studentId, courseId])
+  @@index([courseId, status])
+}
+
+// ──────────────── Live / hybrid classes & broadcast ────────────────
+
+model LiveSession {
+  id          String        @id @default(uuid())
+  title       String
+  description String?
+  courseId    String?
+  course      Course?       @relation(fields: [courseId], references: [id])
+  batchId     String?
+  batch       Batch?        @relation(fields: [batchId], references: [id])
+  hostId      String
+  host        User          @relation("SessionHost", fields: [hostId], references: [id])
+  mode        SessionMode   @default(MEETING)
+  status      SessionStatus @default(SCHEDULED)
+
+  // studio room the broadcast originates from (2 studios in the bid)
+  originRoomId String?
+  originRoom   Classroom? @relation("SessionOriginRoom", fields: [originRoomId], references: [id])
+
+  scheduledStart DateTime
+  scheduledEnd   DateTime
+  actualStart    DateTime?
+  actualEnd      DateTime?
+
+  zoomMeetingId    String?
+  zoomJoinUrl      String?
+  zoomStartUrl     String?
+  streamUrl        String? // adaptive-bitrate relay endpoint
+  recordingUrl     String?
+  fallbackAssetUrl String? // served when a site link drops [NEW]
+
+  moderatedQA Boolean @default(true) // classroom return audio is moderated
+
+  targets    BroadcastTarget[]
+  attendance Attendance[]
+  questions  SessionQuestion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([scheduledStart, status])
+  @@index([originRoomId, scheduledStart])
+}
+
+model BroadcastTarget {
+  id           String      @id @default(uuid())
+  sessionId    String
+  session      LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  classroomId  String
+  classroom    Classroom   @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  joinedAt     DateTime?
+  leftAt       DateTime?
+  connectionOk Boolean     @default(true)
+
+  @@unique([sessionId, classroomId])
+}
+
+model SessionQuestion {
+  id          String      @id @default(uuid())
+  sessionId   String
+  session     LiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  classroomId String?
+  askedById   String?
+  body        String
+  approved    Boolean     @default(false)
+  answeredAt  DateTime?
+  createdAt   DateTime    @default(now())
+
+  @@index([sessionId, approved])
+}
+
+// ─────────────────────────── Attendance ───────────────────────────
+
+model Attendance {
+  id     String           @id @default(uuid())
+  kind   AttendanceKind   @default(INDIVIDUAL)
+  status AttendanceStatus @default(PRESENT)
+  date   DateTime         @default(now())
+
+  sessionId String?
+  session   LiveSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  studentId String?
+  student   User?   @relation("AttendanceStudent", fields: [studentId], references: [id], onDelete: Cascade)
+
+  classroomId String?
+  classroom   Classroom? @relation("AttendanceRoom", fields: [classroomId], references: [id])
+  headcount   Int? // room-level headcount when kind = ROOM_LEVEL
+
+  markedById String?
+  markedBy   User?   @relation("AttendanceMarker", fields: [markedById], references: [id])
+  remarks    String?
+
+  corrections AttendanceCorrection[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sessionId, studentId])
+  @@index([studentId, date])
+  @@index([classroomId, date])
+}
+
+model AttendanceCorrection {
+  id           String           @id @default(uuid())
+  attendanceId String
+  attendance   Attendance       @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  fromStatus   AttendanceStatus
+  toStatus     AttendanceStatus
+  reason       String
+  correctedBy  String
+  createdAt    DateTime         @default(now())
+}
+
+// ──────────────────── Assignments & submissions ────────────────────
+
+model Assignment {
+  id             String   @id @default(uuid())
+  courseId       String
+  course         Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  batchId        String?
+  batch          Batch?   @relation(fields: [batchId], references: [id])
+  title          String
+  instructions   String?
+  attachmentUrl  String?
+  maxMarks       Int      @default(100)
+  dueAt          DateTime
+  allowLate      Boolean  @default(true)
+  latePenaltyPct Int      @default(0)
+  createdById    String
+  published      Boolean  @default(false)
+
+  submissions Submission[]
+
+  createdAt DateTime @default(now())
+
+  @@index([courseId, dueAt])
+}
+
+model Submission {
+  id           String           @id @default(uuid())
+  assignmentId String
+  assignment   Assignment       @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  studentId    String
+  student      User             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  status       SubmissionStatus @default(DRAFT)
+  text         String?
+  fileKey      String?
+  fileName     String?
+  submittedAt  DateTime?
+  marks        Float?
+  feedback     String?
+  gradedById   String?
+  gradedAt     DateTime?
+  attempt      Int              @default(1)
+
+  @@unique([assignmentId, studentId])
+  @@index([studentId, status])
+}
+
+// ───────────────────── Question bank & quizzes ─────────────────────
+
+model Question {
+  id            String       @id @default(uuid())
+  courseId      String?
+  course        Course?      @relation(fields: [courseId], references: [id])
+  topic         String?
+  type          QuestionType
+  body          String
+  marks         Float        @default(1)
+  negativeMarks Float        @default(0)
+  explanation   String?
+  difficulty    String?      @default("medium")
+
+  options   QuestionOption[]
+  quizItems QuizQuestion[]
+  answers   AttemptAnswer[]
+
+  createdAt DateTime @default(now())
+
+  @@index([courseId, topic])
+}
+
+model QuestionOption {
+  id         String   @id @default(uuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  body       String
+  isCorrect  Boolean  @default(false)
+  position   Int      @default(0)
+}
+
+model Quiz {
+  id          String  @id @default(uuid())
+  courseId    String
+  course      Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+
+  durationMin      Int     @default(30)
+  maxAttempts      Int     @default(1)
+  passMark         Int     @default(40)
+  shuffleQuestions Boolean @default(true)
+  shuffleOptions   Boolean @default(true)
+  showAnswers      Boolean @default(false)
+  published        Boolean @default(false)
+  resultsPublished Boolean @default(false)
+
+  // exam-integrity controls [NEW]
+  proctoringEnabled Boolean @default(false)
+  maxTabSwitches    Int     @default(3)
+  lockTimer         Boolean @default(true)
+
+  opensAt  DateTime?
+  closesAt DateTime?
+
+  questions QuizQuestion[]
+  attempts  QuizAttempt[]
+
+  createdAt DateTime @default(now())
+
+  @@index([courseId, published])
+}
+
+model QuizQuestion {
+  id         String   @id @default(uuid())
+  quizId     String
+  quiz       Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  position   Int      @default(0)
+  marks      Float?
+
+  @@unique([quizId, questionId])
+}
+
+model QuizAttempt {
+  id          String        @id @default(uuid())
+  quizId      String
+  quiz        Quiz          @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  studentId   String
+  student     User          @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  attemptNo   Int           @default(1)
+  status      AttemptStatus @default(IN_PROGRESS)
+  startedAt   DateTime      @default(now())
+  submittedAt DateTime?
+  expiresAt   DateTime
+  score       Float?
+  maxScore    Float?
+  passed      Boolean?
+
+  answers      AttemptAnswer[]
+  proctorFlags ProctorFlag[]
+
+  @@unique([quizId, studentId, attemptNo])
+  @@index([studentId, status])
+}
+
+model AttemptAnswer {
+  id                String      @id @default(uuid())
+  attemptId         String
+  attempt           QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId        String
+  question          Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedIds       String[]    @default([])
+  textAnswer        String?
+  isCorrect         Boolean?
+  awardedMarks      Float?
+  needsManualReview Boolean     @default(false)
+
+  @@unique([attemptId, questionId])
+}
+
+model ProctorFlag {
+  id        String          @id @default(uuid())
+  attemptId String
+  attempt   QuizAttempt     @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  type      ProctorFlagType
+  at        DateTime        @default(now())
+  detail    String?
+
+  @@index([attemptId])
+}
+
+// ───────────────────── Progress & certificates ─────────────────────
+
+model Progress {
+  id              String    @id @default(uuid())
+  studentId       String
+  student         User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseId        String
+  course          Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessonId        String?
+  lesson          Lesson?   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  completed       Boolean   @default(false)
+  secondsSpent    Int       @default(0)
+  lastPositionSec Int       @default(0)
+  completedAt     DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([studentId, lessonId])
+  @@index([studentId, courseId])
+}
+
+model Certificate {
+  id            String    @id @default(uuid())
+  certificateNo String    @unique
+  studentId     String
+  student       User      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  courseId      String
+  course        Course    @relation(fields: [courseId], references: [id])
+  templateId    String?
+  issuedAt      DateTime  @default(now())
+  fileKey       String?
+  verifyToken   String    @unique
+  revokedAt     DateTime?
+
+  @@unique([studentId, courseId])
+}
+
+model CertificateTemplate {
+  id           String  @id @default(uuid())
+  name         String  @unique
+  bodyHtml     String
+  signatureUrl String?
+  isDefault    Boolean @default(false)
+}
+
+// ───────────────── Notifications & communication ─────────────────
+
+model Notification {
+  id       String              @id @default(uuid())
+  userId   String
+  user     User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel  NotificationChannel @default(IN_APP)
+  type     String
+  title    String
+  body     String
+  link     String?
+  readAt   DateTime?
+  delivery DeliveryStatus      @default(QUEUED)
+  error    String?
+  sentAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt])
+}
+
+model NotificationTemplate {
+  id      String              @id @default(uuid())
+  key     String              @unique
+  channel NotificationChannel
+  subject String?
+  body    String
+  locale  String              @default("en")
+  active  Boolean             @default(true)
+}
+
+model Announcement {
+  id          String   @id @default(uuid())
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id])
+  courseId    String?
+  course      Course?  @relation(fields: [courseId], references: [id])
+  batchId     String?
+  siteId      String?
+  audience    Role[]   @default([])
+  title       String
+  body        String
+  pinned      Boolean  @default(false)
+  publishedAt DateTime @default(now())
+}
+
+model CalendarEvent {
+  id             String        @id @default(uuid())
+  academicYearId String?
+  academicYear   AcademicYear? @relation(fields: [academicYearId], references: [id])
+  title          String
+  type           String // CLASS | EXAM | DEADLINE | HOLIDAY | EVENT
+  startAt        DateTime
+  endAt          DateTime
+  courseId       String?
+  batchId        String?
+  siteId         String?
+  sessionId      String?
+  createdById    String?
+
+  @@index([startAt])
+}
+
+// ───────────────── Helpdesk / grievance escalation ─────────────────
+
+model SupportTicket {
+  id          String          @id @default(uuid())
+  ticketNo    String          @unique
+  requesterId String
+  requester   User            @relation("TicketRequester", fields: [requesterId], references: [id])
+  assigneeId  String?
+  assignee    User?           @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  siteId      String?
+  site        Site?           @relation(fields: [siteId], references: [id])
+  subject     String
+  body        String
+  category    String?
+  severity    TicketSeverity  @default(MEDIUM)
+  status      TicketStatus    @default(OPEN)
+  level       EscalationLevel @default(SITE)
+  slaDueAt    DateTime?
+  resolvedAt  DateTime?
+
+  events TicketEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, severity])
+}
+
+model TicketEvent {
+  id       String        @id @default(uuid())
+  ticketId String
+  ticket   SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  actorId  String?
+  action   String
+  note     String?
+  at       DateTime      @default(now())
+}
+
+// ─────────────────────── Audit & settings ───────────────────────
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  before    Json?
+  after     Json?
+  ip        String?
+  userAgent String?
+  at        DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([actorId, at])
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}

@@ -1,0 +1,1 @@
+export { VerifyCertificatePage } from './Misc';

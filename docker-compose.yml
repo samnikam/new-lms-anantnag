@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lms-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lms
+      POSTGRES_PASSWORD: lms
+      POSTGRES_DB: lms_portal
+    # 55433 on the host: 5432/5433 are commonly taken by native PostgreSQL installs.
+    ports:
+      - '55433:5432'
+    volumes:
+      - lms-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U lms -d lms_portal']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: lms-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - lms-redisdata:/data
+
+  api:
+    build:
+      context: ./backend
+    container_name: lms-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://lms:lms@postgres:5432/lms_portal?schema=public
+      PORT: 4000
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      UPLOAD_DIR: /data/uploads
+      NODE_ENV: production
+    ports:
+      - '4000:4000'
+    volumes:
+      - lms-uploads:/data/uploads
+    profiles: ['full']
+
+  web:
+    build:
+      context: ./frontend
+    container_name: lms-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '8080:80'
+    profiles: ['full']
+
+volumes:
+  lms-pgdata:
+  lms-redisdata:
+  lms-uploads:
