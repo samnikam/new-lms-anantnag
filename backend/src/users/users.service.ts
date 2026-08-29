@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { PageQuery, pageResult, paginate } from '../common/pagination';
 import { AuthUser } from '../common/decorators/current-user.decorator';
+import { assertCanManageRole, assignableRoles } from '../common/role-hierarchy';
 
 const SAFE_SELECT = {
   id: true,
@@ -52,22 +53,31 @@ export class UsersService {
     return pageResult(items, total, q);
   }
 
+  /** Roles this actor may assign — drives the account-creation form. */
+  assignableRolesFor(actorRole: Role) {
+    return assignableRoles(actorRole);
+  }
+
   async findOne(id: string) {
     const user = await this.prisma.user.findUnique({ where: { id }, select: SAFE_SELECT });
     if (!user) throw new NotFoundException('User not found.');
     return user;
   }
 
-  async create(data: {
-    fullName: string;
-    email?: string;
-    mobile?: string;
-    username?: string;
-    password: string;
-    role: Role;
-    siteId?: string;
-    locale?: string;
-  }) {
+  async create(
+    data: {
+      fullName: string;
+      email?: string;
+      mobile?: string;
+      username?: string;
+      password: string;
+      role: Role;
+      siteId?: string;
+      locale?: string;
+    },
+    actorRole?: Role,
+  ) {
+    if (actorRole) assertCanManageRole(actorRole, data.role);
     if (!data.email && !data.mobile && !data.username) {
       throw new BadRequestException('Provide at least an email, mobile number or username.');
     }
@@ -86,7 +96,30 @@ export class UsersService {
     });
   }
 
-  update(id: string, data: Partial<{ fullName: string; email: string; mobile: string; siteId: string; locale: string; status: UserStatus }>) {
+  async update(
+    id: string,
+    data: Partial<{
+      fullName: string;
+      email: string;
+      mobile: string;
+      siteId: string;
+      locale: string;
+      status: UserStatus;
+      role: Role;
+    }>,
+    actorRole?: Role,
+  ) {
+    if (actorRole) {
+      const target = await this.prisma.user.findUniqueOrThrow({
+        where: { id },
+        select: { role: true },
+      });
+      // Both the account as it stands and the role being assigned must be
+      // within reach, so an admin cannot edit upward or promote past themselves.
+      assertCanManageRole(actorRole, target.role);
+      if (data.role) assertCanManageRole(actorRole, data.role);
+    }
+
     return this.prisma.user.update({
       where: { id },
       data: { ...data, email: data.email?.toLowerCase() },
@@ -94,7 +127,14 @@ export class UsersService {
     });
   }
 
-  async setStatus(id: string, status: UserStatus) {
+  async setStatus(id: string, status: UserStatus, actorRole?: Role) {
+    if (actorRole) {
+      const target = await this.prisma.user.findUniqueOrThrow({
+        where: { id },
+        select: { role: true },
+      });
+      assertCanManageRole(actorRole, target.role);
+    }
     const user = await this.prisma.user.update({ where: { id }, data: { status }, select: SAFE_SELECT });
     if (status !== UserStatus.ACTIVE) {
       await this.prisma.refreshToken.updateMany({
@@ -105,7 +145,16 @@ export class UsersService {
     return user;
   }
 
-  async resetPasswordByAdmin(id: string, newPassword: string) {
+  async resetPasswordByAdmin(id: string, newPassword: string, actorRole?: Role) {
+    if (actorRole) {
+      const target = await this.prisma.user.findUniqueOrThrow({
+        where: { id },
+        select: { role: true },
+      });
+      // Resetting a password is an account takeover, so it needs the same
+      // authority as editing the account.
+      assertCanManageRole(actorRole, target.role);
+    }
     if (newPassword.length < 8) throw new BadRequestException('Password must be at least 8 characters.');
     await this.prisma.user.update({
       where: { id },
@@ -125,6 +174,7 @@ export class UsersService {
   /** Bulk import from a parsed CSV payload. Reports per-row outcomes. */
   async bulkImport(
     rows: Array<{ fullName: string; email?: string; mobile?: string; role: Role; siteCode?: string; password?: string }>,
+    actorRole?: Role,
   ) {
     const sites = await this.prisma.site.findMany({ select: { id: true, code: true } });
     const siteByCode = new Map(sites.map((s) => [s.code, s.id]));
@@ -135,14 +185,17 @@ export class UsersService {
     for (const [index, row] of rows.entries()) {
       try {
         if (!row.fullName?.trim()) throw new Error('fullName is required');
-        const user = await this.create({
-          fullName: row.fullName.trim(),
-          email: row.email?.trim(),
-          mobile: row.mobile?.trim(),
-          role: row.role,
-          siteId: row.siteCode ? siteByCode.get(row.siteCode) : undefined,
-          password: row.password?.trim() || defaultPassword(row),
-        });
+        const user = await this.create(
+          {
+            fullName: row.fullName.trim(),
+            email: row.email?.trim(),
+            mobile: row.mobile?.trim(),
+            role: row.role,
+            siteId: row.siteCode ? siteByCode.get(row.siteCode) : undefined,
+            password: row.password?.trim() || defaultPassword(row),
+          },
+          actorRole,
+        );
         created.push(user.id);
       } catch (err: any) {
         failed.push({ row: index + 1, reason: err?.message ?? 'Import failed' });

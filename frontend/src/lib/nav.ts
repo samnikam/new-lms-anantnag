@@ -12,6 +12,7 @@ import {
   ListChecks,
   Megaphone,
   MonitorPlay,
+  SlidersHorizontal,
   ScrollText,
   Users,
   UserSquare2,
@@ -61,6 +62,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/reports', label: 'Reports', icon: BarChart3, roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN', 'TEACHER', 'DEPT_OVERSIGHT'] },
   { to: '/announcements', label: 'Announcements', icon: Megaphone, roles: ALL },
   { to: '/support', label: 'Help & Support', icon: LifeBuoy, roles: ALL },
+  { to: '/settings', label: 'System Settings', icon: SlidersHorizontal, roles: ['SUPER_ADMIN'] },
   { to: '/audit', label: 'Audit Logs', icon: ScrollText, roles: ['SUPER_ADMIN'] },
   { to: '/kiosk', label: 'Classroom Panel', icon: MonitorPlay, roles: ['SUPER_ADMIN'] },
 ];

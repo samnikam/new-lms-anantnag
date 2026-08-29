@@ -30,6 +30,13 @@ export class UsersController {
     return this.users.list(q);
   }
 
+  /** The roles the signed-in admin may assign, for the creation form. */
+  @Get('assignable-roles')
+  @Roles(...ADMINS)
+  assignableRoles(@CurrentUser('role') role: Role) {
+    return this.users.assignableRolesFor(role);
+  }
+
   @Get('my-children')
   @Roles(Role.PARENT)
   myChildren(@CurrentUser('id') parentId: string) {
@@ -51,36 +58,48 @@ export class UsersController {
   @Post()
   @Roles(...ADMINS)
   @Audit('user.create', 'User')
-  create(@Body() dto: CreateUserDto) {
-    return this.users.create(dto);
+  create(@Body() dto: CreateUserDto, @CurrentUser('role') actorRole: Role) {
+    return this.users.create(dto, actorRole);
   }
 
   @Post('bulk-import')
   @Roles(...ADMINS)
   @Audit('user.bulk_import', 'User')
-  bulkImport(@Body() dto: BulkImportDto) {
-    return this.users.bulkImport(dto.rows ?? []);
+  bulkImport(@Body() dto: BulkImportDto, @CurrentUser('role') actorRole: Role) {
+    return this.users.bulkImport(dto.rows ?? [], actorRole);
   }
 
   @Patch(':id')
   @Roles(...ADMINS)
   @Audit('user.update', 'User')
-  update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
-    return this.users.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserDto,
+    @CurrentUser('role') actorRole: Role,
+  ) {
+    return this.users.update(id, dto, actorRole);
   }
 
   @Patch(':id/status')
-  @Roles(Role.SUPER_ADMIN)
+  @Roles(...ADMINS)
   @Audit('user.set_status', 'User')
-  setStatus(@Param('id') id: string, @Body() dto: SetStatusDto) {
-    return this.users.setStatus(id, dto.status);
+  setStatus(
+    @Param('id') id: string,
+    @Body() dto: SetStatusDto,
+    @CurrentUser('role') actorRole: Role,
+  ) {
+    return this.users.setStatus(id, dto.status, actorRole);
   }
 
   @Post(':id/reset-password')
-  @Roles(Role.SUPER_ADMIN)
+  @Roles(...ADMINS)
   @Audit('user.admin_reset_password', 'User')
-  resetPassword(@Param('id') id: string, @Body() dto: AdminResetPasswordDto) {
-    return this.users.resetPasswordByAdmin(id, dto.newPassword);
+  resetPassword(
+    @Param('id') id: string,
+    @Body() dto: AdminResetPasswordDto,
+    @CurrentUser('role') actorRole: Role,
+  ) {
+    return this.users.resetPasswordByAdmin(id, dto.newPassword, actorRole);
   }
 
   @Post('links')

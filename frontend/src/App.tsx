@@ -23,6 +23,7 @@ import { AnnouncementsPage } from './pages/Announcements';
 import { NotificationsPage } from './pages/Notifications';
 import { SupportPage, TicketDetailPage } from './pages/Support';
 import { AuditPage } from './pages/Audit';
+import { SettingsPage } from './pages/Settings';
 import { NotFoundPage, ForbiddenPage } from './pages/Errors';
 
 /** Blocks a route whose role list does not include the signed-in role. */
@@ -154,6 +155,14 @@ export function App() {
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="support" element={<SupportPage />} />
         <Route path="support/:id" element={<TicketDetailPage />} />
+        <Route
+          path="settings"
+          element={
+            <RequireRole roles={['SUPER_ADMIN']}>
+              <SettingsPage />
+            </RequireRole>
+          }
+        />
         <Route
           path="audit"
           element={

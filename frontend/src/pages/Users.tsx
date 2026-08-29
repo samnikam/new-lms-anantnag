@@ -147,6 +147,14 @@ function CreateUserModal({ open, onClose, onDone }: { open: boolean; onClose: ()
     password: '',
   });
 
+  // The server decides which roles this admin may assign; the form mirrors it
+  // so an Academic Admin is never shown an option that would be rejected.
+  const { data: allowedRoles } = useQuery({
+    queryKey: ['assignable-roles'],
+    queryFn: async () => (await api.get<Role[]>('/users/assignable-roles')).data,
+    enabled: open,
+  });
+
   const { data: sites } = useQuery({
     queryKey: ['sites'],
     queryFn: async () => (await api.get<any[]>('/sites')).data,
@@ -203,7 +211,7 @@ function CreateUserModal({ open, onClose, onDone }: { open: boolean; onClose: ()
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Role">
           <select className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
-            {ROLES.map((r) => (
+            {(allowedRoles ?? ['STUDENT']).map((r) => (
               <option key={r} value={r}>
                 {ROLE_LABELS[r]}
               </option>
