@@ -67,6 +67,9 @@ export class CreateLessonDto {
   @IsOptional() @IsInt() position?: number;
   @IsOptional() @IsInt() durationMin?: number;
   @IsOptional() @IsBoolean() isRequired?: boolean;
+  // Authors publish a lesson as they add it; without this the request is
+  // rejected outright by the whitelist validator.
+  @IsOptional() @IsEnum(ContentState) state?: ContentState;
 }
 
 export class UpdateLessonDto {
