@@ -26,8 +26,8 @@ export class UsersController {
 
   @Get()
   @Roles(...ADMINS)
-  list(@Query() q: ListUsersQuery) {
-    return this.users.list(q);
+  list(@Query() q: ListUsersQuery, @CurrentUser() actor: AuthUser) {
+    return this.users.list(q, actor);
   }
 
   /** The roles the signed-in admin may assign, for the creation form. */
@@ -58,15 +58,15 @@ export class UsersController {
   @Post()
   @Roles(...ADMINS)
   @Audit('user.create', 'User')
-  create(@Body() dto: CreateUserDto, @CurrentUser('role') actorRole: Role) {
-    return this.users.create(dto, actorRole);
+  create(@Body() dto: CreateUserDto, @CurrentUser() actor: AuthUser) {
+    return this.users.create(dto, actor.role, actor);
   }
 
   @Post('bulk-import')
   @Roles(...ADMINS)
   @Audit('user.bulk_import', 'User')
-  bulkImport(@Body() dto: BulkImportDto, @CurrentUser('role') actorRole: Role) {
-    return this.users.bulkImport(dto.rows ?? [], actorRole);
+  bulkImport(@Body() dto: BulkImportDto, @CurrentUser() actor: AuthUser) {
+    return this.users.bulkImport(dto.rows ?? [], actor.role);
   }
 
   @Patch(':id')
@@ -75,9 +75,9 @@ export class UsersController {
   update(
     @Param('id') id: string,
     @Body() dto: UpdateUserDto,
-    @CurrentUser('role') actorRole: Role,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.users.update(id, dto, actorRole);
+    return this.users.update(id, dto, actor.role, actor);
   }
 
   @Patch(':id/status')
@@ -86,9 +86,9 @@ export class UsersController {
   setStatus(
     @Param('id') id: string,
     @Body() dto: SetStatusDto,
-    @CurrentUser('role') actorRole: Role,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.users.setStatus(id, dto.status, actorRole);
+    return this.users.setStatus(id, dto.status, actor.role, actor);
   }
 
   @Post(':id/reset-password')
@@ -97,9 +97,9 @@ export class UsersController {
   resetPassword(
     @Param('id') id: string,
     @Body() dto: AdminResetPasswordDto,
-    @CurrentUser('role') actorRole: Role,
+    @CurrentUser() actor: AuthUser,
   ) {
-    return this.users.resetPasswordByAdmin(id, dto.newPassword, actorRole);
+    return this.users.resetPasswordByAdmin(id, dto.newPassword, actor.role, actor);
   }
 
   @Post('links')

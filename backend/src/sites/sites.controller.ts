@@ -2,6 +2,8 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestj
 import { ApiTags } from '@nestjs/swagger';
 import { DeviceStatus, DeviceType, InstitutionType, Role } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
+import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
+import { resolveSiteFilter, scopeSiteId, assertSiteAllowed } from '../common/site-scope';
 import { Audit } from '../common/decorators/audit.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { SitesService } from './sites.service';
@@ -30,6 +32,7 @@ export class SitesController {
   @Get('sites')
   @Roles(...VIEWERS)
   listSites(
+    @CurrentUser() actor: AuthUser,
     @Query('search') search?: string,
     @Query('type') type?: InstitutionType,
     @Query('active') active?: string,
@@ -38,24 +41,27 @@ export class SitesController {
       search,
       type,
       active: active === undefined ? undefined : active === 'true',
+      onlySiteId: scopeSiteId(actor) ?? undefined,
     });
   }
 
   @Get('sites/status-board')
   @Roles(...VIEWERS)
-  statusBoard() {
-    return this.sites.statusBoard();
+  statusBoard(@CurrentUser() actor: AuthUser) {
+    return this.sites.statusBoard(scopeSiteId(actor) ?? undefined);
   }
 
   @Get('sites/:id')
   @Roles(...VIEWERS)
-  getSite(@Param('id') id: string) {
+  getSite(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    assertSiteAllowed(actor, id);
     return this.sites.getSite(id);
   }
 
   @Get('sites/:id/stats')
   @Roles(...VIEWERS)
-  siteStats(@Param('id') id: string) {
+  siteStats(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    assertSiteAllowed(actor, id);
     return this.sites.siteStats(id);
   }
 
@@ -82,8 +88,8 @@ export class SitesController {
 
   @Get('classrooms')
   @Roles(...VIEWERS)
-  listClassrooms(@Query('siteId') siteId?: string) {
-    return this.sites.listClassrooms(siteId);
+  listClassrooms(@CurrentUser() actor: AuthUser, @Query('siteId') siteId?: string) {
+    return this.sites.listClassrooms(resolveSiteFilter(actor, siteId));
   }
 
   @Post('classrooms')
@@ -103,12 +109,18 @@ export class SitesController {
   @Get('devices')
   @Roles(...VIEWERS)
   listDevices(
+    @CurrentUser() actor: AuthUser,
     @Query('classroomId') classroomId?: string,
     @Query('siteId') siteId?: string,
     @Query('status') status?: DeviceStatus,
     @Query('type') type?: DeviceType,
   ) {
-    return this.sites.listDevices({ classroomId, siteId, status, type });
+    return this.sites.listDevices({
+      classroomId,
+      siteId: resolveSiteFilter(actor, siteId),
+      status,
+      type,
+    });
   }
 
   @Post('devices')

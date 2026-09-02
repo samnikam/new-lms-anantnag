@@ -25,6 +25,7 @@ import { SupportPage, TicketDetailPage } from './pages/Support';
 import { AuditPage } from './pages/Audit';
 import { SettingsPage } from './pages/Settings';
 import { LibraryPage } from './pages/Library';
+import { ProfilePage } from './pages/Profile';
 import { NotFoundPage, ForbiddenPage } from './pages/Errors';
 
 /** Blocks a route whose role list does not include the signed-in role. */
@@ -162,6 +163,7 @@ export function App() {
 
         <Route path="announcements" element={<AnnouncementsPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
+        <Route path="profile" element={<ProfilePage />} />
         <Route path="support" element={<SupportPage />} />
         <Route path="support/:id" element={<TicketDetailPage />} />
         <Route

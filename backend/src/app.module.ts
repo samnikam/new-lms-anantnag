@@ -28,6 +28,7 @@ import { UploadsModule } from './uploads/uploads.module';
 import { CalendarModule } from './calendar/calendar.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { SettingsModule } from './settings/settings.module';
+import { ProfileModule } from './profile/profile.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { SettingsModule } from './settings/settings.module';
     CalendarModule,
     DashboardModule,
     SettingsModule,
+    ProfileModule,
   ],
   controllers: [HealthController],
   providers: [

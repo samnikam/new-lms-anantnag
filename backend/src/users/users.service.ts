@@ -5,6 +5,7 @@ import { AuthService } from '../auth/auth.service';
 import { PageQuery, pageResult, paginate } from '../common/pagination';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { assertCanManageRole, assignableRoles } from '../common/role-hierarchy';
+import { assertSiteAllowed, resolveSiteFilter, scopeSiteId } from '../common/site-scope';
 
 const SAFE_SELECT = {
   id: true,
@@ -25,11 +26,17 @@ const SAFE_SELECT = {
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async list(q: PageQuery & { role?: Role; status?: UserStatus; siteId?: string }) {
+  async list(
+    q: PageQuery & { role?: Role; status?: UserStatus; siteId?: string },
+    actor?: AuthUser,
+  ) {
+    // A scoped admin may only ever list users at their own site.
+    const siteId = actor ? resolveSiteFilter(actor, q.siteId) : q.siteId;
+
     const where: Prisma.UserWhereInput = {
       ...(q.role ? { role: q.role } : {}),
       ...(q.status ? { status: q.status } : {}),
-      ...(q.siteId ? { siteId: q.siteId } : {}),
+      ...(siteId ? { siteId } : {}),
       ...(q.search
         ? {
             OR: [
@@ -76,10 +83,22 @@ export class UsersService {
       locale?: string;
     },
     actorRole?: Role,
+    actor?: AuthUser,
   ) {
     if (actorRole) assertCanManageRole(actorRole, data.role);
     if (!data.email && !data.mobile && !data.username) {
       throw new BadRequestException('Provide at least an email, mobile number or username.');
+    }
+
+    // A scoped admin creates accounts at their own site, and nowhere else.
+    if (actor) {
+      const scope = scopeSiteId(actor);
+      if (scope) {
+        if (data.siteId && data.siteId !== scope) {
+          throw new BadRequestException('You can only create accounts at your assigned site.');
+        }
+        data = { ...data, siteId: scope };
+      }
     }
     return this.prisma.user.create({
       data: {
@@ -108,16 +127,21 @@ export class UsersService {
       role: Role;
     }>,
     actorRole?: Role,
+    actor?: AuthUser,
   ) {
     if (actorRole) {
       const target = await this.prisma.user.findUniqueOrThrow({
         where: { id },
-        select: { role: true },
+        select: { role: true, siteId: true },
       });
       // Both the account as it stands and the role being assigned must be
       // within reach, so an admin cannot edit upward or promote past themselves.
       assertCanManageRole(actorRole, target.role);
       if (data.role) assertCanManageRole(actorRole, data.role);
+      if (actor) {
+        assertSiteAllowed(actor, target.siteId);
+        if (data.siteId) assertSiteAllowed(actor, data.siteId);
+      }
     }
 
     return this.prisma.user.update({
@@ -127,13 +151,14 @@ export class UsersService {
     });
   }
 
-  async setStatus(id: string, status: UserStatus, actorRole?: Role) {
+  async setStatus(id: string, status: UserStatus, actorRole?: Role, actor?: AuthUser) {
     if (actorRole) {
       const target = await this.prisma.user.findUniqueOrThrow({
         where: { id },
-        select: { role: true },
+        select: { role: true, siteId: true },
       });
       assertCanManageRole(actorRole, target.role);
+      if (actor) assertSiteAllowed(actor, target.siteId);
     }
     const user = await this.prisma.user.update({ where: { id }, data: { status }, select: SAFE_SELECT });
     if (status !== UserStatus.ACTIVE) {
@@ -145,12 +170,13 @@ export class UsersService {
     return user;
   }
 
-  async resetPasswordByAdmin(id: string, newPassword: string, actorRole?: Role) {
+  async resetPasswordByAdmin(id: string, newPassword: string, actorRole?: Role, actor?: AuthUser) {
     if (actorRole) {
       const target = await this.prisma.user.findUniqueOrThrow({
         where: { id },
-        select: { role: true },
+        select: { role: true, siteId: true },
       });
+      if (actor) assertSiteAllowed(actor, target.siteId);
       // Resetting a password is an account takeover, so it needs the same
       // authority as editing the account.
       assertCanManageRole(actorRole, target.role);

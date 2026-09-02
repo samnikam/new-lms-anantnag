@@ -21,9 +21,12 @@ export class SitesService {
 
   // ───────────────────────────── Sites ─────────────────────────────
 
-  listSites(filter: { search?: string; type?: InstitutionType; active?: boolean } = {}) {
+  listSites(
+    filter: { search?: string; type?: InstitutionType; active?: boolean; onlySiteId?: string } = {},
+  ) {
     return this.prisma.site.findMany({
       where: {
+        ...(filter.onlySiteId ? { id: filter.onlySiteId } : {}),
         ...(filter.type ? { type: filter.type } : {}),
         ...(filter.active !== undefined ? { active: filter.active } : {}),
         ...(filter.search
@@ -270,9 +273,9 @@ export class SitesService {
   }
 
   /** Live device-status board — the department oversight dashboard's core view. */
-  async statusBoard() {
+  async statusBoard(onlySiteId?: string) {
     const sites = await this.prisma.site.findMany({
-      where: { active: true },
+      where: { active: true, ...(onlySiteId ? { id: onlySiteId } : {}) },
       include: {
         classrooms: {
           include: { devices: { select: { id: true, type: true, status: true, lastSeenAt: true, serialNo: true } } },

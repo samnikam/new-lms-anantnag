@@ -45,3 +45,12 @@ export class EnrollBatchDto {
 export class EnrollmentStatusDto {
   @IsEnum(EnrollmentStatus) status!: EnrollmentStatus;
 }
+
+export class TransferEnrollmentDto {
+  @IsString() toBatchId!: string;
+  @IsOptional() @IsString() reason?: string;
+}
+
+export class WithdrawEnrollmentDto {
+  @IsOptional() @IsString() reason?: string;
+}

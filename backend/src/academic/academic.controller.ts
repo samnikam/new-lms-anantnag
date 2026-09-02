@@ -2,6 +2,8 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
+import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
+import { resolveSiteFilter } from '../common/site-scope';
 import { Audit } from '../common/decorators/audit.decorator';
 import { AcademicService } from './academic.service';
 import {
@@ -11,7 +13,9 @@ import {
   EnrollDto,
   EnrollManyDto,
   EnrollmentStatusDto,
+  TransferEnrollmentDto,
   UpdateBatchDto,
+  WithdrawEnrollmentDto,
 } from './dto';
 
 const ADMINS = [Role.SUPER_ADMIN, Role.ACADEMIC_ADMIN] as const;
@@ -44,8 +48,15 @@ export class AcademicController {
 
   @Get('batches')
   @Roles(...READERS)
-  listBatches(@Query('academicYearId') academicYearId?: string, @Query('siteId') siteId?: string) {
-    return this.academic.listBatches({ academicYearId, siteId });
+  listBatches(
+    @CurrentUser() actor: AuthUser,
+    @Query('academicYearId') academicYearId?: string,
+    @Query('siteId') siteId?: string,
+  ) {
+    return this.academic.listBatches({
+      academicYearId,
+      siteId: resolveSiteFilter(actor, siteId),
+    });
   }
 
   @Post('batches')
@@ -75,8 +86,8 @@ export class AcademicController {
   @Post('enrollments')
   @Roles(...ADMINS)
   @Audit('enrollment.create', 'Enrollment')
-  enroll(@Body() dto: EnrollDto) {
-    return this.academic.enroll(dto.studentId, dto.courseId, dto.batchId);
+  enroll(@Body() dto: EnrollDto, @CurrentUser('id') actorId: string) {
+    return this.academic.enroll(dto.studentId, dto.courseId, dto.batchId, actorId);
   }
 
   @Post('enrollments/bulk')
@@ -96,7 +107,40 @@ export class AcademicController {
   @Patch('enrollments/:id/status')
   @Roles(...ADMINS)
   @Audit('enrollment.set_status', 'Enrollment')
-  setStatus(@Param('id') id: string, @Body() dto: EnrollmentStatusDto) {
-    return this.academic.setEnrollmentStatus(id, dto.status);
+  setStatus(
+    @Param('id') id: string,
+    @Body() dto: EnrollmentStatusDto,
+    @CurrentUser('id') actorId: string,
+  ) {
+    return this.academic.setEnrollmentStatus(id, dto.status, actorId);
+  }
+
+  /** Move a learner between batches, keeping the previous batch on record. */
+  @Post('enrollments/:id/transfer')
+  @Roles(...ADMINS)
+  @Audit('enrollment.transfer', 'Enrollment')
+  transfer(
+    @Param('id') id: string,
+    @Body() dto: TransferEnrollmentDto,
+    @CurrentUser('id') actorId: string,
+  ) {
+    return this.academic.transferEnrollment(id, dto.toBatchId, dto.reason, actorId);
+  }
+
+  @Post('enrollments/:id/withdraw')
+  @Roles(...ADMINS)
+  @Audit('enrollment.withdraw', 'Enrollment')
+  withdraw(
+    @Param('id') id: string,
+    @Body() dto: WithdrawEnrollmentDto,
+    @CurrentUser('id') actorId: string,
+  ) {
+    return this.academic.withdrawEnrollment(id, dto.reason, actorId);
+  }
+
+  @Get('enrollments/:id/history')
+  @Roles(...READERS)
+  history(@Param('id') id: string) {
+    return this.academic.enrollmentHistory(id);
   }
 }

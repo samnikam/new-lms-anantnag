@@ -83,6 +83,15 @@ enum EnrollmentStatus {
   COMPLETED
 }
 
+enum EnrollmentAction {
+  ENROLLED
+  BATCH_CHANGED
+  TRANSFERRED
+  WITHDRAWN
+  REINSTATED
+  COMPLETED
+}
+
 enum SessionMode {
   MEETING // standard 1:1 Zoom-style join
   BROADCAST // one studio -> many classrooms (relay)
@@ -505,8 +514,28 @@ model Enrollment {
   enrolledAt  DateTime         @default(now())
   completedAt DateTime?
 
+  history EnrollmentHistory[]
+
   @@unique([studentId, courseId])
   @@index([courseId, status])
+}
+
+/// Every transfer and withdrawal keeps its trail: a learner's academic record
+/// has to be reconstructable, not just show its latest state.
+model EnrollmentHistory {
+  id           String           @id @default(uuid())
+  enrollmentId String
+  enrollment   Enrollment       @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  action       EnrollmentAction
+  fromBatchId  String?
+  toBatchId    String?
+  fromStatus   EnrollmentStatus?
+  toStatus     EnrollmentStatus?
+  reason       String?
+  changedById  String?
+  at           DateTime         @default(now())
+
+  @@index([enrollmentId, at])
 }
 
 // ──────────────── Live / hybrid classes & broadcast ────────────────

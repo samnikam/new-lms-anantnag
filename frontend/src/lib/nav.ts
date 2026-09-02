@@ -12,8 +12,10 @@ import {
   LifeBuoy,
   ListChecks,
   Megaphone,
+  Bell,
   ScrollText,
   SlidersHorizontal,
+  UserCircle,
   Users,
   UserSquare2,
   Video,
@@ -21,7 +23,15 @@ import {
 import type { Role } from './auth';
 
 /** Sidebar sections, in the order they appear. */
-export const NAV_GROUPS = ['main', 'learning', 'administration', 'insights', 'communication', 'system'] as const;
+export const NAV_GROUPS = [
+  'main',
+  'learning',
+  'administration',
+  'insights',
+  'communication',
+  'system',
+  'account',
+] as const;
 export type NavGroup = (typeof NAV_GROUPS)[number];
 
 export const GROUP_LABELS: Record<NavGroup, string | null> = {
@@ -31,6 +41,7 @@ export const GROUP_LABELS: Record<NavGroup, string | null> = {
   insights: 'Insights',
   communication: 'Communication',
   system: 'System',
+  account: 'Account',
 };
 
 export interface NavItem {
@@ -67,7 +78,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: BookOpen,
     group: 'learning',
     roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN', 'TEACHER', 'CONTENT_MANAGER'],
-    labelByRole: { ACADEMIC_ADMIN: 'Course Catalogue', TEACHER: 'My Courses' },
+    labelByRole: { TEACHER: 'My Courses' },
   },
   {
     to: '/my-learning',
@@ -79,6 +90,7 @@ export const NAV_ITEMS: NavItem[] = [
   {
     to: '/library',
     label: 'Content Library',
+    labelByRole: { ACADEMIC_ADMIN: 'Content' },
     icon: LibraryBig,
     group: 'learning',
     roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN', 'TEACHER', 'CONTENT_MANAGER'],
@@ -105,11 +117,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: ListChecks,
     group: 'learning',
     roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN', 'TEACHER', 'STUDENT'],
-    labelByRole: {
-      ACADEMIC_ADMIN: 'Attendance Oversight',
-      TEACHER: 'Mark Attendance',
-      STUDENT: 'My Attendance',
-    },
+    labelByRole: { TEACHER: 'Mark Attendance', STUDENT: 'My Attendance' },
   },
   {
     to: '/assignments',
@@ -144,7 +152,7 @@ export const NAV_ITEMS: NavItem[] = [
     group: 'administration',
     roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN'],
     // An Academic Admin manages teaching staff and learners, never administrators.
-    labelByRole: { ACADEMIC_ADMIN: 'Staff & Learners' },
+    labelByRole: { ACADEMIC_ADMIN: 'Users' },
   },
   {
     to: '/academic',
@@ -159,7 +167,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Building2,
     group: 'administration',
     roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN', 'DEPT_OVERSIGHT'],
-    labelByRole: { DEPT_OVERSIGHT: 'Site Monitoring' },
+    labelByRole: { ACADEMIC_ADMIN: 'Sites & Classrooms', DEPT_OVERSIGHT: 'Site Monitoring' },
   },
 
   // ── Insights ──────────────────────────────────────────────────────────
@@ -174,7 +182,9 @@ export const NAV_ITEMS: NavItem[] = [
 
   // ── Communication ─────────────────────────────────────────────────────
   { to: '/announcements', label: 'Announcements', icon: Megaphone, group: 'communication', roles: ALL },
+  { to: '/notifications', label: 'Notifications', icon: Bell, group: 'communication', roles: ALL },
   { to: '/support', label: 'Help & Support', icon: LifeBuoy, group: 'communication', roles: ALL },
+  { to: '/profile', label: 'My Profile', icon: UserCircle, group: 'account', roles: ALL },
 
   // ── System (Super Admin only) ─────────────────────────────────────────
   {

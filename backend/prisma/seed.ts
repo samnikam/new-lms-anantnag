@@ -101,6 +101,20 @@ async function main() {
     create: { email: 'academic@lms.gov.in', fullName: 'Dr. Nasreen Akhtar', role: Role.ACADEMIC_ADMIN, passwordHash: password },
   });
 
+  // A second, site-scoped academic admin: proves §27 scope enforcement, since
+  // the division-wide one above has no site and therefore sees everything.
+  await prisma.user.upsert({
+    where: { email: 'academic.site2@lms.gov.in' },
+    update: { siteId: sites[1].id },
+    create: {
+      email: 'academic.site2@lms.gov.in',
+      fullName: 'Site Academic Admin (Aru)',
+      role: Role.ACADEMIC_ADMIN,
+      passwordHash: password,
+      siteId: sites[1].id,
+    },
+  });
+
   const teacher = await prisma.user.upsert({
     where: { email: 'teacher@lms.gov.in' },
     update: {},
@@ -398,7 +412,8 @@ Seed complete.
 
   Sign in with (password: Password@123)
     Super Admin        admin@lms.gov.in
-    Academic Admin     academic@lms.gov.in
+    Academic Admin     academic@lms.gov.in       (division-wide)
+    Academic Admin     academic.site2@lms.gov.in  (scoped to one site)
     Teacher            teacher@lms.gov.in
     Content Manager    content@lms.gov.in
     Student            student@lms.gov.in
