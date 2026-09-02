@@ -5,7 +5,7 @@ import { Bell, LogOut, Menu, X } from 'lucide-react';
 import clsx from 'clsx';
 import { api } from '../lib/api';
 import { ROLE_LABELS, useAuth } from '../lib/auth';
-import { navFor } from '../lib/nav';
+import { navSectionsFor } from '../lib/nav';
 
 export function Layout() {
   const { user, signOut } = useAuth();
@@ -19,7 +19,7 @@ export function Layout() {
   });
 
   if (!user) return null;
-  const items = navFor(user.role);
+  const sections = navSectionsFor(user.role);
 
   return (
     <div className="flex min-h-screen">
@@ -40,23 +40,39 @@ export function Layout() {
           </div>
         </div>
 
-        <nav className="space-y-0.5 p-3" aria-label="Main navigation">
-          {items.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              onClick={() => setMenuOpen(false)}
-              className={({ isActive }) =>
-                clsx(
-                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                  isActive ? 'bg-brand-50 text-brand-800' : 'text-ink-soft hover:bg-slate-50 hover:text-ink',
-                )
-              }
-            >
-              <Icon className="h-4 w-4 shrink-0" aria-hidden />
-              <span className="truncate">{label}</span>
-            </NavLink>
+        <nav
+          className="h-[calc(100vh-4rem)] overflow-y-auto px-3 pb-6 pt-3"
+          aria-label="Main navigation"
+        >
+          {sections.map((section) => (
+            <div key={section.group} className="mb-1">
+              {section.label && (
+                <p className="px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  {section.label}
+                </p>
+              )}
+              <div className="space-y-0.5">
+                {section.items.map(({ to, label, icon: Icon }) => (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    end={to === '/'}
+                    onClick={() => setMenuOpen(false)}
+                    className={({ isActive }) =>
+                      clsx(
+                        'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+                        isActive
+                          ? 'bg-brand-50 font-semibold text-brand-800'
+                          : 'font-medium text-ink-soft hover:bg-slate-50 hover:text-ink',
+                      )
+                    }
+                  >
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden />
+                    <span className="truncate">{label}</span>
+                  </NavLink>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
       </aside>

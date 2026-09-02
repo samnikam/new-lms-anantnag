@@ -4,6 +4,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Building2, Plus, Wifi, WifiOff } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { SchoolsManager } from './Schools';
 import {
   Badge,
   Card,
@@ -21,7 +22,7 @@ import {
 export function SitesPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<'sites' | 'classrooms' | 'devices'>('sites');
+  const [tab, setTab] = useState<'schools' | 'sites' | 'classrooms' | 'devices'>('schools');
   const [addingRoom, setAddingRoom] = useState(false);
 
   const readOnly = user!.role === 'DEPT_OVERSIGHT';
@@ -60,10 +61,11 @@ export function SitesPage() {
   return (
     <>
       <PageHeader
-        title="Sites, Classrooms & Devices"
-        description="Panel and OPS PC registry with live heartbeat status per classroom."
+        title="Sites & Devices"
+        description="Schools and institutes, their classrooms, and live panel status."
         actions={
-          !readOnly && (
+          !readOnly &&
+          tab === 'classrooms' && (
             <button type="button" className="btn-primary" onClick={() => setAddingRoom(true)}>
               <Plus className="h-4 w-4" aria-hidden />
               Add classroom
@@ -72,19 +74,13 @@ export function SitesPage() {
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-4">
-        <StatCard label="Sites" value={board!.length} />
-        <StatCard label="Classrooms" value={totals.classrooms} />
-        <StatCard label="Devices" value={totals.total} />
-        <StatCard
-          label="Online now"
-          value={`${totals.online}/${totals.total}`}
-          tone={totals.online === totals.total ? 'good' : 'warn'}
-        />
-      </div>
-
-      <div className="mb-4 flex gap-2 border-b border-slate-200">
-        {(['sites', 'classrooms', 'devices'] as const).map((key) => (
+      <div className="mb-4 flex flex-wrap gap-2 border-b border-slate-200">
+        {([
+          ['schools', 'Schools & Institutes'],
+          ['sites', 'Status Board'],
+          ['classrooms', 'Classrooms'],
+          ['devices', 'Devices'],
+        ] as const).map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -95,13 +91,26 @@ export function SitesPage() {
                 : 'px-4 py-2 text-sm font-medium text-ink-soft hover:text-ink'
             }
           >
-            {key[0].toUpperCase() + key.slice(1)}
+            {label}
           </button>
         ))}
       </div>
 
+      {tab === 'schools' && <SchoolsManager canManage={!readOnly && user!.role === 'SUPER_ADMIN'} />}
+
       {tab === 'sites' && (
-        <Card>
+        <>
+          <div className="mb-6 grid gap-4 sm:grid-cols-4">
+            <StatCard label="Sites" value={board!.length} />
+            <StatCard label="Classrooms" value={totals.classrooms} />
+            <StatCard label="Devices" value={totals.total} />
+            <StatCard
+              label="Online now"
+              value={`${totals.online}/${totals.total}`}
+              tone={totals.online === totals.total ? 'good' : 'warn'}
+            />
+          </div>
+          <Card>
           <Table headers={['Site', 'District', 'Classrooms', 'Devices online', 'Uptime', 'Last heartbeat']}>
             {board!.map((site) => (
               <tr key={site.siteId}>
@@ -126,9 +135,10 @@ export function SitesPage() {
                   {site.lastSeenAt ? `${formatDistanceToNow(new Date(site.lastSeenAt))} ago` : 'Never'}
                 </td>
               </tr>
-            ))}
-          </Table>
-        </Card>
+              ))}
+            </Table>
+          </Card>
+        </>
       )}
 
       {tab === 'classrooms' && (

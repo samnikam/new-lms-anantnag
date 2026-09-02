@@ -1,22 +1,27 @@
-import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, MinLength } from 'class-validator';
-import { DeviceStatus, DeviceType } from '@prisma/client';
+import { IsBoolean, IsEmail, IsEnum, IsInt, IsNumber, IsOptional, IsString, MinLength } from 'class-validator';
+import { DeviceStatus, DeviceType, InstitutionType } from '@prisma/client';
 
 export class CreateSiteDto {
   @IsString() code!: string;
   @IsString() name!: string;
+  @IsOptional() @IsEnum(InstitutionType) type?: InstitutionType;
   @IsOptional() @IsString() consigneeAddr?: string;
   @IsOptional() @IsString() district?: string;
   @IsOptional() @IsString() contactName?: string;
   @IsOptional() @IsString() contactPhone?: string;
+  @IsOptional() @IsEmail() contactEmail?: string;
   @IsOptional() @IsString() internetLink?: string;
 }
 
 export class UpdateSiteDto {
+  @IsOptional() @IsString() code?: string;
   @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsEnum(InstitutionType) type?: InstitutionType;
   @IsOptional() @IsString() consigneeAddr?: string;
   @IsOptional() @IsString() district?: string;
   @IsOptional() @IsString() contactName?: string;
   @IsOptional() @IsString() contactPhone?: string;
+  @IsOptional() @IsEmail() contactEmail?: string;
   @IsOptional() @IsString() internetLink?: string;
   @IsOptional() @IsBoolean() active?: boolean;
 }

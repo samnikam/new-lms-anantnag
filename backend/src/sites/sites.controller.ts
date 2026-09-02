@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { DeviceStatus, DeviceType, Role } from '@prisma/client';
+import { DeviceStatus, DeviceType, InstitutionType, Role } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Audit } from '../common/decorators/audit.decorator';
 import { Public } from '../common/decorators/public.decorator';
@@ -29,8 +29,16 @@ export class SitesController {
 
   @Get('sites')
   @Roles(...VIEWERS)
-  listSites() {
-    return this.sites.listSites();
+  listSites(
+    @Query('search') search?: string,
+    @Query('type') type?: InstitutionType,
+    @Query('active') active?: string,
+  ) {
+    return this.sites.listSites({
+      search,
+      type,
+      active: active === undefined ? undefined : active === 'true',
+    });
   }
 
   @Get('sites/status-board')
@@ -45,6 +53,12 @@ export class SitesController {
     return this.sites.getSite(id);
   }
 
+  @Get('sites/:id/stats')
+  @Roles(...VIEWERS)
+  siteStats(@Param('id') id: string) {
+    return this.sites.siteStats(id);
+  }
+
   @Post('sites')
   @Roles(Role.SUPER_ADMIN)
   @Audit('site.create', 'Site')
@@ -57,6 +71,13 @@ export class SitesController {
   @Audit('site.update', 'Site')
   updateSite(@Param('id') id: string, @Body() dto: UpdateSiteDto) {
     return this.sites.updateSite(id, dto);
+  }
+
+  @Delete('sites/:id')
+  @Roles(Role.SUPER_ADMIN)
+  @Audit('site.delete', 'Site')
+  deleteSite(@Param('id') id: string) {
+    return this.sites.deleteSite(id);
   }
 
   @Get('classrooms')

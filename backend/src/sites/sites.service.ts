@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { DeviceStatus, DeviceType, Prisma } from '@prisma/client';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { DeviceStatus, DeviceType, InstitutionType, Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -21,13 +21,89 @@ export class SitesService {
 
   // ───────────────────────────── Sites ─────────────────────────────
 
-  listSites() {
+  listSites(filter: { search?: string; type?: InstitutionType; active?: boolean } = {}) {
     return this.prisma.site.findMany({
+      where: {
+        ...(filter.type ? { type: filter.type } : {}),
+        ...(filter.active !== undefined ? { active: filter.active } : {}),
+        ...(filter.search
+          ? {
+              OR: [
+                { name: { contains: filter.search, mode: 'insensitive' } },
+                { code: { contains: filter.search, mode: 'insensitive' } },
+                { district: { contains: filter.search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
       orderBy: { code: 'asc' },
       include: {
-        _count: { select: { classrooms: true, users: true } },
+        _count: { select: { classrooms: true, users: true, batches: true } },
       },
     });
+  }
+
+  /** Per-school rollup for the management screen. */
+  async siteStats(id: string) {
+    const site = await this.prisma.site.findUnique({
+      where: { id },
+      include: {
+        classrooms: { select: { id: true, isStudio: true, devices: { select: { status: true } } } },
+        _count: { select: { batches: true, tickets: true } },
+      },
+    });
+    if (!site) throw new NotFoundException('School not found.');
+
+    const devices = site.classrooms.flatMap((c) => c.devices);
+    const online = devices.filter((d) => d.status === DeviceStatus.ONLINE).length;
+
+    const usersByRole = await this.prisma.user.groupBy({
+      by: ['role'],
+      where: { siteId: id },
+      _count: true,
+    });
+
+    return {
+      classrooms: site.classrooms.length,
+      studios: site.classrooms.filter((c) => c.isStudio).length,
+      devicesTotal: devices.length,
+      devicesOnline: online,
+      uptimePct: devices.length ? Math.round((online / devices.length) * 100) : 0,
+      batches: site._count.batches,
+      openTickets: site._count.tickets,
+      usersByRole: Object.fromEntries(usersByRole.map((u) => [u.role, u._count])),
+      totalUsers: usersByRole.reduce((sum, u) => sum + u._count, 0),
+    };
+  }
+
+  /**
+   * Removes a school outright. Refused while anything still belongs to it:
+   * classrooms cascade-delete, which would silently take their devices,
+   * attendance and broadcast history with them.
+   */
+  async deleteSite(id: string) {
+    const site = await this.prisma.site.findUnique({
+      where: { id },
+      include: { _count: { select: { classrooms: true, users: true, batches: true } } },
+    });
+    if (!site) throw new NotFoundException('School not found.');
+
+    const { classrooms, users, batches } = site._count;
+    if (classrooms || users || batches) {
+      const blocking = [
+        classrooms && `${classrooms} classroom(s)`,
+        users && `${users} user(s)`,
+        batches && `${batches} batch(es)`,
+      ]
+        .filter(Boolean)
+        .join(', ');
+      throw new BadRequestException(
+        `This school still has ${blocking}. Move or remove them first, or deactivate the school instead.`,
+      );
+    }
+
+    await this.prisma.site.delete({ where: { id } });
+    return { ok: true, deleted: site.name };
   }
 
   async getSite(id: string) {

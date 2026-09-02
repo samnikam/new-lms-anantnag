@@ -36,6 +36,12 @@ enum LinkStatus {
   REVOKED
 }
 
+enum InstitutionType {
+  SCHOOL
+  INSTITUTE
+  CENTRE
+}
+
 enum DeviceType {
   INTERACTIVE_PANEL
   OPS_PC
@@ -249,15 +255,17 @@ model ParentStudentLink {
 // ───────────────── Sites, classrooms, devices [NEW] ─────────────────
 
 model Site {
-  id            String  @id @default(uuid())
-  code          String  @unique
+  id            String          @id @default(uuid())
+  code          String          @unique
   name          String
+  type          InstitutionType @default(SCHOOL)
   consigneeAddr String?
   district      String?
   contactName   String?
   contactPhone  String?
+  contactEmail  String?
   internetLink  String? // ISP / connection reference (21 connections in bid)
-  active        Boolean @default(true)
+  active        Boolean         @default(true)
 
   classrooms Classroom[]
   users      User[]

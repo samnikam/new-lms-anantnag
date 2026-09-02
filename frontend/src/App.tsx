@@ -24,6 +24,7 @@ import { NotificationsPage } from './pages/Notifications';
 import { SupportPage, TicketDetailPage } from './pages/Support';
 import { AuditPage } from './pages/Audit';
 import { SettingsPage } from './pages/Settings';
+import { LibraryPage } from './pages/Library';
 import { NotFoundPage, ForbiddenPage } from './pages/Errors';
 
 /** Blocks a route whose role list does not include the signed-in role. */
@@ -84,6 +85,14 @@ export function App() {
           }
         />
 
+        <Route
+          path="library"
+          element={
+            <RequireRole roles={['SUPER_ADMIN', 'ACADEMIC_ADMIN', 'TEACHER', 'CONTENT_MANAGER']}>
+              <LibraryPage />
+            </RequireRole>
+          }
+        />
         <Route
           path="my-learning"
           element={
@@ -171,15 +180,6 @@ export function App() {
             </RequireRole>
           }
         />
-        <Route
-          path="kiosk"
-          element={
-            <RequireRole roles={['SUPER_ADMIN']}>
-              <KioskLoginPage />
-            </RequireRole>
-          }
-        />
-
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>
