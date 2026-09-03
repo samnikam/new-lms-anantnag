@@ -214,7 +214,13 @@ async function main() {
   });
 
   const batch = await prisma.batch.upsert({
-    where: { academicYearId_name: { academicYearId: year.id, name: 'Class 10 — A' } },
+    where: {
+      academicYearId_siteId_name: {
+        academicYearId: year.id,
+        siteId: sites[0].id,
+        name: 'Class 10 — A',
+      },
+    },
     update: {},
     create: {
       academicYearId: year.id,

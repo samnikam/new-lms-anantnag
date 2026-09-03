@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { GraduationCap, Pencil, Plus, Trash2 } from 'lucide-react';
+import { GraduationCap, Pencil, Plus, Trash2, UserPlus } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import {
   Badge,
@@ -29,6 +29,7 @@ export function ClassesPage() {
   const [editing, setEditing] = useState<any | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<any | null>(null);
   const [addingSectionTo, setAddingSectionTo] = useState<any | null>(null);
+  const [enrollingInto, setEnrollingInto] = useState<any | null>(null);
 
   const { data: sites } = useQuery({
     queryKey: ['sites'],
@@ -58,6 +59,7 @@ export function ClassesPage() {
   if (error) return <ErrorState message={errorMessage(error)} onRetry={refetch} />;
 
   const sections = data!.reduce((sum, c) => sum + c.batches.length, 0);
+  const subjects = data!.reduce((sum, c) => sum + (c.subjects?.length ?? 0), 0);
   const learners = data!.reduce(
     (sum, c) => sum + c.batches.reduce((s: number, b: any) => s + b._count.enrollments, 0),
     0,
@@ -67,7 +69,7 @@ export function ClassesPage() {
     <>
       <PageHeader
         title="Classes"
-        description="The classes taught at each school, and the sections within them."
+        description="Set up a class first: its subjects, its sections, and the learners in it. The timetable and attendance build on this."
         actions={
           <button type="button" className="btn-primary" onClick={() => setCreating(true)}>
             <Plus className="h-4 w-4" aria-hidden />
@@ -76,8 +78,9 @@ export function ClassesPage() {
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-4">
         <StatCard label="Classes" value={data!.length} />
+        <StatCard label="Subjects taught" value={subjects} />
         <StatCard label="Sections" value={sections} />
         <StatCard label="Enrolments" value={learners} />
       </div>
@@ -140,6 +143,14 @@ export function ClassesPage() {
                   <button
                     type="button"
                     className="btn-secondary text-xs"
+                    onClick={() => setEnrollingInto(c)}
+                  >
+                    <UserPlus className="h-3.5 w-3.5" aria-hidden />
+                    Enrol learner
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs"
                     onClick={() => setAddingSectionTo(c)}
                   >
                     <Plus className="h-3.5 w-3.5" aria-hidden />
@@ -175,9 +186,11 @@ export function ClassesPage() {
                 </Table>
               ) : (
                 <p className="text-sm text-slate-500">
-                  No sections yet — add one so learners can be enrolled into this class.
+                  No sections yet — add one so learners can be grouped within this class.
                 </p>
               )}
+
+              <SubjectsPanel schoolClass={c} onChanged={invalidate} />
             </Card>
           ))}
         </div>
@@ -194,6 +207,15 @@ export function ClassesPage() {
         onDone={() => {
           setCreating(false);
           setEditing(null);
+          invalidate();
+        }}
+      />
+
+      <EnrolInClassModal
+        schoolClass={enrollingInto}
+        onClose={() => setEnrollingInto(null)}
+        onDone={() => {
+          setEnrollingInto(null);
           invalidate();
         }}
       />
@@ -449,6 +471,324 @@ function SectionModal({
       </Field>
 
       {create.isError && <p className="text-sm text-red-600">{errorMessage(create.error)}</p>}
+    </Modal>
+  );
+}
+
+/**
+ * Subjects a class studies, with who teaches each. This is the link the rest
+ * of the portal reads from: the timetable offers these subjects for the class,
+ * and enrolling a learner into the class enrols them into all of them.
+ */
+function SubjectsPanel({ schoolClass, onChanged }: { schoolClass: any; onChanged: () => void }) {
+  const [adding, setAdding] = useState(false);
+  const [courseId, setCourseId] = useState('');
+  const [teacherId, setTeacherId] = useState('');
+  const [newName, setNewName] = useState('');
+
+  const { data: courses } = useQuery({
+    queryKey: ['courses', 'picker'],
+    queryFn: async () => (await api.get<any>('/courses', { params: { limit: 200 } })).data,
+    enabled: adding,
+  });
+
+  const { data: teachers } = useQuery({
+    queryKey: ['users', 'teachers'],
+    queryFn: async () => (await api.get<any>('/users', { params: { role: 'TEACHER', limit: 200 } })).data,
+    enabled: adding,
+  });
+
+  const reset = () => {
+    setAdding(false);
+    setCourseId('');
+    setTeacherId('');
+    setNewName('');
+  };
+
+  const attach = useMutation({
+    mutationFn: async () => {
+      let id = courseId;
+
+      // Creating the subject inline saves a trip to another screen; the code
+      // the database needs is derived rather than demanded.
+      if (!id && newName.trim()) {
+        const base =
+          newName.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 12) || 'SUBJ';
+        const created = (
+          await api.post<any>('/courses', {
+            title: newName.trim(),
+            code: base + '-' + String(Date.now()).slice(-3),
+          })
+        ).data;
+        id = created.id;
+      }
+
+      return (
+        await api.post(`/classes/${schoolClass.id}/subjects`, {
+          courseId: id,
+          teacherId: teacherId || undefined,
+        })
+      ).data;
+    },
+    onSuccess: () => {
+      reset();
+      onChanged();
+    },
+  });
+
+  const detach = useMutation({
+    mutationFn: async (cid: string) =>
+      (await api.delete(`/classes/${schoolClass.id}/subjects/${cid}`)).data,
+    onSuccess: onChanged,
+  });
+
+  const taken = new Set((schoolClass.subjects ?? []).map((s: any) => s.course.id));
+
+  return (
+    <div className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-ink">
+          Subjects ({schoolClass.subjects?.length ?? 0})
+        </h3>
+        {!adding && (
+          <button type="button" className="btn-secondary text-xs" onClick={() => setAdding(true)}>
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+            Add subject
+          </button>
+        )}
+      </div>
+
+      {schoolClass.subjects?.length ? (
+        <Table headers={['Subject', 'Teacher', '']}>
+          {schoolClass.subjects.map((s: any) => (
+            <tr key={s.id}>
+              <td className="td">
+                <span className="font-medium">{s.course.title}</span>
+                <span className="ml-2 text-xs text-slate-500">{s.course.code}</span>
+              </td>
+              <td className="td text-slate-600">
+                {s.teacher?.fullName ?? (
+                  <span className="text-xs text-amber-700">No teacher assigned</span>
+                )}
+              </td>
+              <td className="td text-right">
+                <button
+                  type="button"
+                  className="rounded p-1.5 text-red-600 hover:bg-red-50"
+                  aria-label={`Remove ${s.course.title}`}
+                  onClick={() => detach.mutate(s.course.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </Table>
+      ) : (
+        <p className="text-sm text-slate-500">
+          No subjects yet. Add them before building a timetable or enrolling learners.
+        </p>
+      )}
+
+      {adding && (
+        <div className="mt-4 border-t border-slate-200 pt-4">
+          <Field label="Subject" hint="Pick one already in the portal, or type a new name below.">
+            <select
+              className="input"
+              value={courseId}
+              onChange={(e) => {
+                setCourseId(e.target.value);
+                if (e.target.value) setNewName('');
+              }}
+            >
+              <option value="">Select an existing subject…</option>
+              {courses?.items
+                ?.filter((c: any) => !taken.has(c.id))
+                .map((c: any) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title}
+                  </option>
+                ))}
+            </select>
+          </Field>
+
+          <Field label="…or add a new subject">
+            <input
+              className="input"
+              placeholder="e.g. Mathematics"
+              value={newName}
+              onChange={(e) => {
+                setNewName(e.target.value);
+                if (e.target.value) setCourseId('');
+              }}
+            />
+          </Field>
+
+          <Field label="Teacher" hint="Optional now; the teacher can be assigned later.">
+            <select className="input" value={teacherId} onChange={(e) => setTeacherId(e.target.value)}>
+              <option value="">Not assigned yet</option>
+              {teachers?.items?.map((t: any) => (
+                <option key={t.id} value={t.id}>
+                  {t.fullName}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={(!courseId && !newName.trim()) || attach.isPending}
+              onClick={() => attach.mutate()}
+            >
+              {attach.isPending ? 'Adding…' : 'Add to class'}
+            </button>
+            <button type="button" className="btn-secondary" onClick={reset}>
+              Cancel
+            </button>
+          </div>
+
+          {attach.isError && (
+            <p className="mt-2 text-sm text-red-600">{errorMessage(attach.error)}</p>
+          )}
+        </div>
+      )}
+
+      {detach.isError && <p className="mt-2 text-sm text-red-600">{errorMessage(detach.error)}</p>}
+    </div>
+  );
+}
+
+/** Enrols a learner into every subject a class studies, in one action. */
+function EnrolInClassModal({
+  schoolClass,
+  onClose,
+  onDone,
+}: {
+  schoolClass: any | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [studentId, setStudentId] = useState('');
+  const [batchId, setBatchId] = useState('');
+  const [search, setSearch] = useState('');
+
+  const { data: students } = useQuery({
+    queryKey: ['users', 'students', search],
+    queryFn: async () =>
+      (
+        await api.get<any>('/users', {
+          params: { role: 'STUDENT', search: search || undefined, limit: 100 },
+        })
+      ).data,
+    enabled: !!schoolClass,
+  });
+
+  const enrol = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post<any>(`/classes/${schoolClass.id}/enroll`, {
+          studentId,
+          batchId: batchId || undefined,
+        })
+      ).data,
+    onSuccess: () => {
+      setStudentId('');
+      setBatchId('');
+    },
+  });
+
+  const noSubjects = (schoolClass?.subjects?.length ?? 0) === 0;
+
+  return (
+    <Modal
+      open={!!schoolClass}
+      title={`Enrol a learner into ${schoolClass?.name ?? ''}`}
+      onClose={() => {
+        enrol.reset();
+        onClose();
+      }}
+      footer={
+        <>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              enrol.reset();
+              onDone();
+            }}
+          >
+            Done
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!studentId || noSubjects || enrol.isPending}
+            onClick={() => enrol.mutate()}
+          >
+            {enrol.isPending ? 'Enrolling…' : 'Enrol'}
+          </button>
+        </>
+      }
+    >
+      {noSubjects ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          This class has no subjects yet. Add its subjects first — enrolling a learner means
+          enrolling them into what the class studies.
+        </div>
+      ) : (
+        <>
+          <p className="mb-4 text-sm text-ink-soft">
+            The learner is enrolled into all {schoolClass.subjects.length} subject
+            {schoolClass.subjects.length === 1 ? '' : 's'} this class studies:{' '}
+            {schoolClass.subjects.map((s: any) => s.course.title).join(', ')}.
+          </p>
+
+          <Field label="Find a learner">
+            <input
+              className="input"
+              placeholder="Search by name or email…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </Field>
+
+          <Field label="Learner">
+            <select className="input" value={studentId} onChange={(e) => setStudentId(e.target.value)}>
+              <option value="">Select…</option>
+              {students?.items?.map((s: any) => (
+                <option key={s.id} value={s.id}>
+                  {s.fullName}
+                  {s.email ? ` — ${s.email}` : ''}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {schoolClass.batches?.length > 0 && (
+            <Field label="Section" hint="Optional when the class has only one.">
+              <select className="input" value={batchId} onChange={(e) => setBatchId(e.target.value)}>
+                <option value="">
+                  {schoolClass.batches.length === 1 ? schoolClass.batches[0].name : 'No section'}
+                </option>
+                {schoolClass.batches.map((b: any) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+
+          {enrol.isError && <p className="text-sm text-red-600">{errorMessage(enrol.error)}</p>}
+          {enrol.isSuccess && (
+            <p className="text-sm text-emerald-700">
+              Enrolled into {enrol.data.enrolled} subject(s). Pick another learner, or press Done.
+            </p>
+          )}
+        </>
+      )}
     </Modal>
   );
 }

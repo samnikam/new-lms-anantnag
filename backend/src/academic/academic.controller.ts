@@ -7,11 +7,13 @@ import { resolveSiteFilter } from '../common/site-scope';
 import { Audit } from '../common/decorators/audit.decorator';
 import { AcademicService } from './academic.service';
 import {
+  AddClassSubjectDto,
   CreateBatchDto,
   CreateClassDto,
   CreateYearDto,
   EnrollBatchDto,
   EnrollDto,
+  EnrollInClassDto,
   EnrollManyDto,
   EnrollmentStatusDto,
   TransferEnrollmentDto,
@@ -80,6 +82,46 @@ export class AcademicController {
   @Audit('class.delete', 'SchoolClass')
   deleteClass(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
     return this.academic.deleteClass(id, actor);
+  }
+
+  @Get('classes/:id/subjects')
+  @Roles(...READERS)
+  listClassSubjects(@Param('id') id: string) {
+    return this.academic.listClassSubjects(id);
+  }
+
+  @Post('classes/:id/subjects')
+  @Roles(...ADMINS)
+  @Audit('class.add_subject', 'ClassSubject')
+  addSubject(
+    @Param('id') id: string,
+    @Body() dto: AddClassSubjectDto,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.academic.addSubjectToClass(id, dto, actor);
+  }
+
+  @Delete('classes/:id/subjects/:courseId')
+  @Roles(...ADMINS)
+  @Audit('class.remove_subject', 'ClassSubject')
+  removeSubject(
+    @Param('id') id: string,
+    @Param('courseId') courseId: string,
+    @CurrentUser() actor: AuthUser,
+  ) {
+    return this.academic.removeSubjectFromClass(id, courseId, actor);
+  }
+
+  /** Enrols a learner into every subject the class studies. */
+  @Post('classes/:id/enroll')
+  @Roles(...ADMINS)
+  @Audit('class.enroll_student', 'Enrollment')
+  enrollInClass(
+    @Param('id') id: string,
+    @Body() dto: EnrollInClassDto,
+    @CurrentUser('id') actorId: string,
+  ) {
+    return this.academic.enrollStudentInClass(dto.studentId, id, dto.batchId, actorId);
   }
 
   @Get('batches')

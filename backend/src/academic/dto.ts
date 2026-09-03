@@ -24,6 +24,17 @@ export class UpdateClassDto {
   @IsOptional() @IsBoolean() active?: boolean;
 }
 
+export class AddClassSubjectDto {
+  @IsString() courseId!: string;
+  @IsOptional() @IsString() teacherId?: string;
+  @IsOptional() @IsInt() periodsPerWeek?: number;
+}
+
+export class EnrollInClassDto {
+  @IsString() studentId!: string;
+  @IsOptional() @IsString() batchId?: string;
+}
+
 export class CreateBatchDto {
   @IsString() academicYearId!: string;
   @IsString() name!: string;

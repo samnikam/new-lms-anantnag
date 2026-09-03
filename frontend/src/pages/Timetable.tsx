@@ -275,6 +275,7 @@ function EntryModal({
     enabled: open,
   });
 
+
   // Classes carry their sections, so one query drives the whole picker.
   const { data: classes } = useQuery({
     queryKey: ['classes'],
@@ -288,6 +289,21 @@ function EntryModal({
     queryFn: async () => (await api.get<any[]>('/batches')).data,
     enabled: open,
   });
+  // Once a class is chosen, only what that class studies can be scheduled for
+  // it — offering the whole catalogue invites a subject the class never takes.
+  const selectedClassId = form.audience.startsWith('class:')
+    ? form.audience.slice(6)
+    : undefined;
+
+  const selectedClass = (classes ?? []).find(
+    (c: any) =>
+      c.id === selectedClassId ||
+      c.batches?.some((b: any) => `batch:${b.id}` === form.audience),
+  );
+
+  const subjectOptions = selectedClass?.subjects?.length
+    ? selectedClass.subjects.map((s: any) => ({ id: s.course.id, label: s.course.title }))
+    : (courses?.items ?? []).map((c: any) => ({ id: c.id, label: c.title }));
 
   const { data: years } = useQuery({
     queryKey: ['academic-years'],
@@ -393,6 +409,14 @@ function EntryModal({
     },
   });
 
+  // A subject left over from a previous class would be silently wrong.
+  useEffect(() => {
+    if (!form.courseId) return;
+    if (!selectedClass?.subjects?.length) return;
+    const allowed = selectedClass.subjects.some((s: any) => s.course.id === form.courseId);
+    if (!allowed) setForm((f) => ({ ...f, courseId: '' }));
+  }, [form.audience, selectedClass, form.courseId]);
+
   const timesValid = form.startTime < form.endTime;
 
   return (
@@ -493,11 +517,15 @@ function EntryModal({
 
           <PickerWithCreate
             label="Subject"
-            hint="The course this class belongs to. Leave as “Any subject” for a holiday or a general notice."
+            hint={
+              selectedClass?.subjects?.length
+                ? `Subjects ${selectedClass.name} studies. Leave as “Any subject” for a holiday or a general notice.`
+                : 'The subject being taught. Leave as “Any subject” for a holiday or a general notice.'
+            }
             emptyLabel="Any subject"
             value={form.courseId}
             onChange={(v) => setForm({ ...form, courseId: v })}
-            options={(courses?.items ?? []).map((c: any) => ({ id: c.id, label: c.title }))}
+            options={subjectOptions}
             createLabel="New subject"
             createPlaceholder="e.g. Mathematics — Class 10"
             onCreate={(name) => createSubject.mutate(name)}

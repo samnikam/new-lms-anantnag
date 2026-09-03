@@ -51,6 +51,13 @@ export class AcademicService {
           select: { id: true, name: true, section: true, _count: { select: { enrollments: true } } },
           orderBy: { name: 'asc' },
         },
+        subjects: {
+          include: {
+            course: { select: { id: true, title: true, code: true, state: true } },
+            teacher: { select: { id: true, fullName: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
       },
       orderBy: [{ level: 'asc' }, { name: 'asc' }],
     });
@@ -94,6 +101,112 @@ export class AcademicService {
 
     await this.prisma.schoolClass.delete({ where: { id } });
     return { ok: true };
+  }
+
+  // ───────────────────── Subjects taught to a class ─────────────────────
+
+  /**
+   * Attaches a subject to a class, optionally naming who teaches it. Assigning
+   * the teacher here also assigns them to the course itself, so the teacher's
+   * own dashboard and course list agree with the class record.
+   */
+  async addSubjectToClass(
+    classId: string,
+    data: { courseId: string; teacherId?: string; periodsPerWeek?: number },
+    actor: AuthUser,
+  ) {
+    const cls = await this.prisma.schoolClass.findUniqueOrThrow({ where: { id: classId } });
+    assertSiteAllowed(actor, cls.siteId);
+
+    const link = await this.prisma.classSubject.upsert({
+      where: { classId_courseId: { classId, courseId: data.courseId } },
+      create: { classId, ...data },
+      update: { teacherId: data.teacherId, periodsPerWeek: data.periodsPerWeek },
+      include: {
+        course: { select: { id: true, title: true, code: true } },
+        teacher: { select: { id: true, fullName: true } },
+      },
+    });
+
+    if (data.teacherId) {
+      await this.prisma.courseTeacher.upsert({
+        where: { courseId_teacherId: { courseId: data.courseId, teacherId: data.teacherId } },
+        create: { courseId: data.courseId, teacherId: data.teacherId },
+        update: {},
+      });
+    }
+
+    return link;
+  }
+
+  async removeSubjectFromClass(classId: string, courseId: string, actor: AuthUser) {
+    const cls = await this.prisma.schoolClass.findUniqueOrThrow({ where: { id: classId } });
+    assertSiteAllowed(actor, cls.siteId);
+
+    await this.prisma.classSubject.delete({
+      where: { classId_courseId: { classId, courseId } },
+    });
+    return { ok: true };
+  }
+
+  listClassSubjects(classId: string) {
+    return this.prisma.classSubject.findMany({
+      where: { classId },
+      include: {
+        course: { select: { id: true, title: true, code: true, state: true } },
+        teacher: { select: { id: true, fullName: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * Enrols a learner into every subject the class studies, in one action.
+   * Enrolling subject by subject is how a class of thirty becomes an
+   * afternoon of clicking, and how one subject quietly gets missed.
+   */
+  async enrollStudentInClass(
+    studentId: string,
+    classId: string,
+    batchId: string | undefined,
+    actorId: string,
+  ) {
+    const cls = await this.prisma.schoolClass.findUniqueOrThrow({
+      where: { id: classId },
+      include: { subjects: { select: { courseId: true } }, batches: { select: { id: true } } },
+    });
+
+    if (cls.subjects.length === 0) {
+      throw new BadRequestException(
+        'This class has no subjects yet. Add its subjects first, then enrol learners.',
+      );
+    }
+
+    // Default to the class's only section when one exists, so the learner is
+    // not left unattached to any group.
+    const targetBatch = batchId ?? (cls.batches.length === 1 ? cls.batches[0].id : undefined);
+
+    const results = [];
+    for (const { courseId } of cls.subjects) {
+      const enrollment = await this.prisma.enrollment.upsert({
+        where: { studentId_courseId: { studentId, courseId } },
+        create: { studentId, courseId, batchId: targetBatch },
+        update: { status: EnrollmentStatus.ACTIVE, batchId: targetBatch },
+      });
+      await this.prisma.enrollmentHistory.create({
+        data: {
+          enrollmentId: enrollment.id,
+          action: EnrollmentAction.ENROLLED,
+          toStatus: EnrollmentStatus.ACTIVE,
+          toBatchId: targetBatch,
+          reason: `Enrolled into ${cls.name}`,
+          changedById: actorId,
+        },
+      });
+      results.push(enrollment);
+    }
+
+    return { enrolled: results.length, className: cls.name, batchId: targetBatch };
   }
 
   // ───────────────────────────  Batches ───────────────────────────

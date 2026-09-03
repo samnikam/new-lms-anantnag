@@ -223,6 +223,7 @@ model User {
   ticketsAssigned  SupportTicket[]     @relation("TicketAssignee")
   hostedSessions   LiveSession[]       @relation("SessionHost")
   announcements    Announcement[]
+  subjectsTaught   ClassSubject[]      @relation("SubjectTeacher")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -372,14 +373,36 @@ model SchoolClass {
   description    String?
   active         Boolean      @default(true)
 
-  batches Batch[]
-  events  CalendarEvent[]
+  batches  Batch[]
+  events   CalendarEvent[]
+  subjects ClassSubject[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([academicYearId, siteId, name])
   @@index([siteId])
+}
+
+/// Which subjects a class studies, and who teaches each one.
+/// This is the join a school actually works from: Class 10 studies
+/// Mathematics, taught by Mr Bhat. Without it a timetable entry could name a
+/// class and a subject with no relationship to each other.
+model ClassSubject {
+  id      String      @id @default(uuid())
+  classId String
+  class   SchoolClass @relation(fields: [classId], references: [id], onDelete: Cascade)
+  courseId String
+  course   Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  teacherId String?
+  teacher   User?   @relation("SubjectTeacher", fields: [teacherId], references: [id])
+
+  periodsPerWeek Int?
+  createdAt      DateTime @default(now())
+
+  @@unique([classId, courseId])
+  @@index([courseId])
 }
 
 model Batch {
@@ -401,7 +424,7 @@ model Batch {
 
   createdAt DateTime @default(now())
 
-  @@unique([academicYearId, name])
+  @@unique([academicYearId, siteId, name])
   @@index([siteId])
 }
 
@@ -438,6 +461,7 @@ model Course {
   certificates  Certificate[]
   progress      Progress[]
   announcements Announcement[]
+  classSubjects ClassSubject[]
 
   publishedAt DateTime?
   createdAt   DateTime  @default(now())
