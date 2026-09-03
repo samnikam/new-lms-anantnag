@@ -51,12 +51,26 @@ npm run dev
 docker compose --profile full up -d --build   # web on :8080, api on :4000
 ```
 
+### Backing up your data
+
+`prisma migrate reset` **drops every table**. Take a snapshot before running it,
+or before any schema change:
+
+```bash
+npm run db:backup                              # writes backups/lms-<timestamp>.sql
+npm run db:restore backups/lms-<timestamp>.sql # puts it back
+```
+
+Backups are gitignored, so they stay on this machine only.
+
 ### Resetting the demo data
 
 ```bash
-npm run --workspace backend db:seed          # top up
-npx prisma migrate reset --force             # from backend/: drop, migrate, reseed
+npm run --workspace backend db:seed          # top up, keeps existing data
+npx prisma migrate reset --force             # DESTRUCTIVE: drops every table, then reseeds
 ```
+
+Take a backup first if the database holds anything you want to keep.
 
 ## Seeded accounts
 

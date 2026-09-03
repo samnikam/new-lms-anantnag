@@ -12,3 +12,4 @@ Thumbs.db
 backend/dist/
 frontend/dist/
 *.tsbuildinfo
+backups/*.sql
