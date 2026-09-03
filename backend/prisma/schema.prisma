@@ -373,6 +373,7 @@ model SchoolClass {
   active         Boolean      @default(true)
 
   batches Batch[]
+  events  CalendarEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -947,12 +948,17 @@ model CalendarEvent {
   startAt        DateTime
   endAt          DateTime
   courseId       String?
+  // A whole class, or one section of it. Most school timetable entries apply
+  // to the class; a section is the exception, not the rule.
+  classId        String?
+  schoolClass    SchoolClass?  @relation(fields: [classId], references: [id])
   batchId        String?
   siteId         String?
   sessionId      String?
   createdById    String?
 
   @@index([startAt])
+  @@index([classId])
 }
 
 // ───────────────── Helpdesk / grievance escalation ─────────────────

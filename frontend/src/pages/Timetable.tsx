@@ -44,7 +44,8 @@ const EMPTY = {
   startTime: '09:00',
   endTime: '10:00',
   courseId: '',
-  batchId: '',
+  // One value drives both: 'class:<id>' or 'batch:<id>'.
+  audience: '',
   siteId: '',
 };
 
@@ -166,7 +167,7 @@ export function TimetablePage() {
                         </Badge>
                       </div>
                       <p className="mt-0.5 text-xs text-slate-500">
-                        {[event.course?.title, event.batch?.name, event.site?.name]
+                        {[event.course?.title, event.batch?.name ?? event.schoolClass?.name, event.site?.name]
                           .filter(Boolean)
                           .join(' · ') || 'Everyone'}
                       </p>
@@ -274,6 +275,14 @@ function EntryModal({
     enabled: open,
   });
 
+  // Classes carry their sections, so one query drives the whole picker.
+  const { data: classes } = useQuery({
+    queryKey: ['classes'],
+    queryFn: async () => (await api.get<any[]>('/classes')).data,
+    enabled: open,
+  });
+
+  // Sections with no class attached would otherwise be unreachable.
   const { data: batches } = useQuery({
     queryKey: ['batches'],
     queryFn: async () => (await api.get<any[]>('/batches')).data,
@@ -305,7 +314,11 @@ function EntryModal({
         startTime: format(start, 'HH:mm'),
         endTime: format(end, 'HH:mm'),
         courseId: event.courseId ?? '',
-        batchId: event.batchId ?? '',
+        audience: event.batchId
+          ? `batch:${event.batchId}`
+          : event.classId
+            ? `class:${event.classId}`
+            : '',
         siteId: event.siteId ?? '',
       });
     } else {
@@ -321,7 +334,8 @@ function EntryModal({
         startAt: new Date(`${form.date}T${form.startTime}`).toISOString(),
         endAt: new Date(`${form.date}T${form.endTime}`).toISOString(),
         courseId: form.courseId || undefined,
-        batchId: form.batchId || undefined,
+        classId: form.audience.startsWith('class:') ? form.audience.slice(6) : undefined,
+        batchId: form.audience.startsWith('batch:') ? form.audience.slice(6) : undefined,
         siteId: scopedSiteId ?? form.siteId ?? undefined,
       };
       return isEdit
@@ -355,21 +369,27 @@ function EntryModal({
     },
   });
 
+  const { data: sitesForCreate } = useQuery({
+    queryKey: ['sites'],
+    queryFn: async () => (await api.get<any[]>('/sites')).data,
+    enabled: open,
+  });
+
   const createGroup = useMutation({
     mutationFn: async (name: string) => {
       const year = years?.find((y: any) => y.isCurrent) ?? years?.[0];
-      if (!year) throw new Error('Create an academic year first, under Academic Structure.');
-      return (
-        await api.post<any>('/batches', {
-          academicYearId: year.id,
-          name,
-          siteId: scopedSiteId ?? form.siteId ?? undefined,
-        })
-      ).data;
+      if (!year) throw new Error('Add an academic year first, under Academic Structure.');
+
+      // A class belongs to one school, so fall back to the only one available
+      // rather than failing on a field the user was never shown.
+      const siteId = scopedSiteId ?? form.siteId ?? sitesForCreate?.[0]?.id;
+      if (!siteId) throw new Error('Add a school first, under Sites & Devices.');
+
+      return (await api.post<any>('/classes', { academicYearId: year.id, siteId, name })).data;
     },
     onSuccess: (created) => {
-      setForm((f) => ({ ...f, batchId: created.id }));
-      qc.invalidateQueries({ queryKey: ['batches'] });
+      setForm((f) => ({ ...f, audience: `class:${created.id}` }));
+      qc.invalidateQueries({ queryKey: ['classes'] });
     },
   });
 
@@ -485,16 +505,12 @@ function EntryModal({
             createError={createSubject.isError ? errorMessage(createSubject.error) : undefined}
           />
 
-          <PickerWithCreate
-            label="Class group"
-            hint="The group of students who attend, e.g. Class 10 — A. Leave as “All students” for a whole-school entry."
-            emptyLabel="All students"
-            value={form.batchId}
-            onChange={(v) => setForm({ ...form, batchId: v })}
-            options={(batches ?? []).map((b: any) => ({ id: b.id, label: b.name }))}
-            createLabel="New class group"
-            createPlaceholder="e.g. Class 10 — B"
-            onCreate={(name) => createGroup.mutate(name)}
+          <ClassPicker
+            value={form.audience}
+            onChange={(v) => setForm({ ...form, audience: v })}
+            classes={classes ?? []}
+            looseBatches={(batches ?? []).filter((b: any) => !b.classId)}
+            onCreateClass={(name) => createGroup.mutate(name)}
             creating={createGroup.isPending}
             createError={createGroup.isError ? errorMessage(createGroup.error) : undefined}
           />
@@ -611,6 +627,110 @@ function PickerWithCreate({
           <button type="button" className="btn-secondary" onClick={() => setAdding(true)}>
             <Plus className="h-4 w-4" aria-hidden />
             {createLabel}
+          </button>
+        </div>
+      )}
+    </Field>
+  );
+}
+
+/**
+ * Who the entry is for: a whole class, or one section within it. Most school
+ * timetable entries apply to the class, so that is the first option under each
+ * heading rather than something to hunt for.
+ */
+function ClassPicker({
+  value,
+  onChange,
+  classes,
+  looseBatches,
+  onCreateClass,
+  creating,
+  createError,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  classes: any[];
+  looseBatches: any[];
+  onCreateClass: (name: string) => void;
+  creating: boolean;
+  createError?: string;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+
+  return (
+    <Field
+      label="Class"
+      hint={
+        adding
+          ? undefined
+          : 'Pick a whole class, or one of its sections. Leave as “All students” for a holiday or a school-wide notice.'
+      }
+      error={createError}
+    >
+      {adding ? (
+        <div className="flex flex-wrap gap-2">
+          <input
+            className="input flex-1"
+            placeholder="e.g. Class 11"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!name.trim() || creating}
+            onClick={() => {
+              onCreateClass(name.trim());
+              setName('');
+              setAdding(false);
+            }}
+          >
+            {creating ? 'Creating…' : 'Create'}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setAdding(false);
+              setName('');
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <select className="input flex-1" value={value} onChange={(e) => onChange(e.target.value)}>
+            <option value="">All students</option>
+
+            {classes.map((c) => (
+              <optgroup key={c.id} label={`${c.name}${c.site?.name ? ` · ${c.site.name}` : ''}`}>
+                <option value={`class:${c.id}`}>{c.name} — whole class</option>
+                {c.batches?.map((b: any) => (
+                  <option key={b.id} value={`batch:${b.id}`}>
+                    {b.name}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+
+            {looseBatches.length > 0 && (
+              <optgroup label="Other groups">
+                {looseBatches.map((b) => (
+                  <option key={b.id} value={`batch:${b.id}`}>
+                    {b.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+
+          <button type="button" className="btn-secondary" onClick={() => setAdding(true)}>
+            <Plus className="h-4 w-4" aria-hidden />
+            New class
           </button>
         </div>
       )}

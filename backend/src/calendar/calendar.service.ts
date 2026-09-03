@@ -10,6 +10,7 @@ export interface CalendarFilter {
   siteId?: string;
   studentId?: string;
   courseId?: string;
+  classId?: string;
   batchId?: string;
   type?: string;
 }
@@ -43,6 +44,7 @@ export class CalendarService {
       },
       ...(filter.type ? { type: filter.type } : {}),
       ...(filter.courseId ? { courseId: filter.courseId } : {}),
+      ...(filter.classId ? { classId: filter.classId } : {}),
       ...(filter.batchId ? { batchId: filter.batchId } : {}),
     };
 
@@ -123,18 +125,23 @@ export class CalendarService {
   private async learnerScope(studentId: string): Promise<Prisma.CalendarEventWhereInput> {
     const enrollments = await this.prisma.enrollment.findMany({
       where: { studentId, status: EnrollmentStatus.ACTIVE },
-      select: { courseId: true, batchId: true },
+      select: { courseId: true, batchId: true, batch: { select: { classId: true } } },
     });
 
     const courseIds = enrollments.map((e) => e.courseId);
     const batchIds = enrollments.map((e) => e.batchId).filter((b): b is string => !!b);
+    // An entry for the whole class reaches every section within it.
+    const classIds = [
+      ...new Set(enrollments.map((e) => e.batch?.classId).filter((c): c is string => !!c)),
+    ];
 
     return {
       OR: [
         { courseId: { in: courseIds } },
         ...(batchIds.length ? [{ batchId: { in: batchIds } }] : []),
+        ...(classIds.length ? [{ classId: { in: classIds } }] : []),
         // Holidays and division-wide notices belong to everyone.
-        { AND: [{ courseId: null }, { batchId: null }] },
+        { AND: [{ courseId: null }, { batchId: null }, { classId: null }] },
       ],
     };
   }
@@ -142,14 +149,18 @@ export class CalendarService {
   private async decorate(events: any[]) {
     const courseIds = [...new Set(events.map((e) => e.courseId).filter(Boolean))];
     const batchIds = [...new Set(events.map((e) => e.batchId).filter(Boolean))];
+    const classIds = [...new Set(events.map((e) => e.classId).filter(Boolean))];
     const siteIds = [...new Set(events.map((e) => e.siteId).filter(Boolean))];
 
-    const [courses, batches, sites] = await Promise.all([
+    const [courses, batches, classes, sites] = await Promise.all([
       courseIds.length
         ? this.prisma.course.findMany({ where: { id: { in: courseIds } }, select: { id: true, title: true, code: true } })
         : [],
       batchIds.length
         ? this.prisma.batch.findMany({ where: { id: { in: batchIds } }, select: { id: true, name: true } })
+        : [],
+      classIds.length
+        ? this.prisma.schoolClass.findMany({ where: { id: { in: classIds } }, select: { id: true, name: true } })
         : [],
       siteIds.length
         ? this.prisma.site.findMany({ where: { id: { in: siteIds } }, select: { id: true, name: true } })
@@ -157,12 +168,13 @@ export class CalendarService {
     ]);
 
     const byId = (rows: any[]) => Object.fromEntries(rows.map((r) => [r.id, r]));
-    const c = byId(courses), b = byId(batches), s = byId(sites);
+    const c = byId(courses), b = byId(batches), k = byId(classes), s = byId(sites);
 
     return events.map((e) => ({
       ...e,
       course: e.courseId ? c[e.courseId] ?? null : null,
       batch: e.batchId ? b[e.batchId] ?? null : null,
+      schoolClass: e.classId ? k[e.classId] ?? null : null,
       site: e.siteId ? s[e.siteId] ?? null : null,
     }));
   }
@@ -219,7 +231,7 @@ export class CalendarService {
    * sees a double-booking rather than discovering it on the day.
    */
   private async findConflict(data: any) {
-    if (!data.batchId && !data.courseId) return null;
+    if (!data.batchId && !data.courseId && !data.classId) return null;
 
     const clash = await this.prisma.calendarEvent.findFirst({
       where: {
@@ -227,6 +239,7 @@ export class CalendarService {
         endAt: { gt: data.startAt },
         OR: [
           ...(data.batchId ? [{ batchId: data.batchId }] : []),
+          ...(data.classId ? [{ classId: data.classId }] : []),
           ...(data.courseId ? [{ courseId: data.courseId }] : []),
         ],
       },

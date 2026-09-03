@@ -16,6 +16,7 @@ class CreateEventDto {
   @Type(() => Date) @IsDate() startAt!: Date;
   @Type(() => Date) @IsDate() endAt!: Date;
   @IsOptional() @IsString() courseId?: string;
+  @IsOptional() @IsString() classId?: string;
   @IsOptional() @IsString() batchId?: string;
   @IsOptional() @IsString() siteId?: string;
   @IsOptional() @IsString() academicYearId?: string;
@@ -27,6 +28,7 @@ class UpdateEventDto {
   @IsOptional() @Type(() => Date) @IsDate() startAt?: Date;
   @IsOptional() @Type(() => Date) @IsDate() endAt?: Date;
   @IsOptional() @IsString() courseId?: string;
+  @IsOptional() @IsString() classId?: string;
   @IsOptional() @IsString() batchId?: string;
   @IsOptional() @IsString() siteId?: string;
 }
@@ -51,6 +53,7 @@ export class CalendarController {
     @Query('siteId') siteId?: string,
     @Query('studentId') studentId?: string,
     @Query('courseId') courseId?: string,
+    @Query('classId') classId?: string,
     @Query('batchId') batchId?: string,
     @Query('type') type?: string,
   ) {
@@ -60,6 +63,7 @@ export class CalendarController {
       siteId,
       studentId,
       courseId,
+      classId,
       batchId,
       type,
     });
