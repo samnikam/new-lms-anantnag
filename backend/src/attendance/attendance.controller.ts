@@ -55,6 +55,33 @@ export class AttendanceController {
     return this.attendance.list(q);
   }
 
+  /** Everything on a given day that attendance can be taken for. */
+  @Get('day')
+  @Roles(Role.SUPER_ADMIN, Role.ACADEMIC_ADMIN, Role.TEACHER)
+  day(@CurrentUser() actor: AuthUser, @Query('date') date?: string) {
+    return this.attendance.dayRegister(
+      date ? new Date(date) : new Date(),
+      actor.role === Role.ACADEMIC_ADMIN ? actor.siteId ?? undefined : undefined,
+    );
+  }
+
+  @Get('events/:eventId/roster')
+  @Roles(Role.SUPER_ADMIN, Role.ACADEMIC_ADMIN, Role.TEACHER)
+  eventRoster(@Param('eventId') eventId: string) {
+    return this.attendance.eventRoster(eventId);
+  }
+
+  @Post('events/:eventId/mark')
+  @Roles(Role.SUPER_ADMIN, Role.ACADEMIC_ADMIN, Role.TEACHER)
+  @Audit('attendance.mark_period', 'Attendance')
+  markEvent(
+    @Param('eventId') eventId: string,
+    @Body() dto: MarkSessionDto,
+    @CurrentUser('id') markedById: string,
+  ) {
+    return this.attendance.markEvent(eventId, dto.entries, markedById);
+  }
+
   @Get('sessions/:sessionId/roster')
   @Roles(Role.SUPER_ADMIN, Role.ACADEMIC_ADMIN, Role.TEACHER)
   roster(@Param('sessionId') sessionId: string) {

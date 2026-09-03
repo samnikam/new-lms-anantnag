@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { PencilLine, Save } from 'lucide-react';
+import { ChevronLeft, ChevronRight, PencilLine, Save } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import {
+  Badge,
   Card,
   EmptyState,
   ErrorState,
@@ -72,28 +73,42 @@ function StudentAttendance() {
   );
 }
 
-/** Teacher roster marking: individual marks and room-level headcounts together. */
+/** Teacher and admin register: pick a day, then a period, then mark it. */
 function TeacherAttendance() {
   const { user } = useAuth();
   const canCorrect = ['SUPER_ADMIN', 'ACADEMIC_ADMIN'].includes(user!.role);
   const [view, setView] = useState<'mark' | 'corrections'>('mark');
   const [params, setParams] = useSearchParams();
-  const sessionId = params.get('sessionId') ?? '';
   const qc = useQueryClient();
+
+  const dateParam = params.get('date') ?? format(new Date(), 'yyyy-MM-dd');
+  const selectedKind = params.get('kind') as 'session' | 'event' | null;
+  const selectedId = params.get('id');
   const [marks, setMarks] = useState<Record<string, string>>({});
 
-  const { data: sessions } = useQuery({
-    queryKey: ['live-sessions', 'for-attendance'],
-    queryFn: async () => (await api.get<any[]>('/live-sessions')).data,
+  const setDate = (d: string) => setParams({ date: d });
+  const pick = (kind: string, id: string) => setParams({ date: dateParam, kind, id });
+
+  const { data: register, isLoading: loadingDay } = useQuery({
+    queryKey: ['attendance', 'day', dateParam],
+    queryFn: async () =>
+      (await api.get<any[]>('/attendance/day', { params: { date: dateParam } })).data,
   });
 
   const { data: roster, isLoading, error, refetch } = useQuery({
-    queryKey: ['roster', sessionId],
-    queryFn: async () => (await api.get<any>(`/attendance/sessions/${sessionId}/roster`)).data,
-    enabled: !!sessionId,
+    queryKey: ['roster', selectedKind, selectedId],
+    queryFn: async () =>
+      (
+        await api.get<any>(
+          selectedKind === 'event'
+            ? `/attendance/events/${selectedId}/roster`
+            : `/attendance/sessions/${selectedId}/roster`,
+        )
+      ).data,
+    enabled: !!selectedId,
   });
 
-  // Seed the form from whatever is already saved for this session.
+  // Seed the form from whatever is already saved for this period.
   useEffect(() => {
     if (!roster) return;
     setMarks(
@@ -106,23 +121,36 @@ function TeacherAttendance() {
   const save = useMutation({
     mutationFn: async () =>
       (
-        await api.post(`/attendance/sessions/${sessionId}/mark`, {
-          entries: Object.entries(marks).map(([studentId, status]) => ({ studentId, status })),
-        })
+        await api.post(
+          selectedKind === 'event'
+            ? `/attendance/events/${selectedId}/mark`
+            : `/attendance/sessions/${selectedId}/mark`,
+          { entries: Object.entries(marks).map(([studentId, status]) => ({ studentId, status })) },
+        )
       ).data,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['roster', sessionId] });
+      qc.invalidateQueries({ queryKey: ['roster'] });
+      qc.invalidateQueries({ queryKey: ['attendance', 'day'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });
+
+  const shiftDay = (days: number) => {
+    const d = new Date(dateParam);
+    d.setDate(d.getDate() + days);
+    setDate(format(d, 'yyyy-MM-dd'));
+  };
+
+  const setAll = (status: string) =>
+    setMarks((m) => Object.fromEntries(Object.keys(m).map((k) => [k, status])));
 
   return (
     <>
       <PageHeader
         title="Attendance"
-        description="Mark a session roster. Room-level headcounts recorded on classroom panels appear alongside."
+        description="Pick a day, then a class period. Room headcounts from classroom panels appear alongside."
         actions={
-          sessionId && (
+          selectedId && (
             <button
               type="button"
               className="btn-primary"
@@ -158,102 +186,204 @@ function TeacherAttendance() {
       {view === 'corrections' ? (
         <AttendanceCorrections />
       ) : (
-      <>
-      <Card className="mb-6">
-        <label className="label" htmlFor="session-picker">
-          Session
-        </label>
-        <select
-          id="session-picker"
-          className="input max-w-xl"
-          value={sessionId}
-          onChange={(e) => setParams(e.target.value ? { sessionId: e.target.value } : {})}
-        >
-          <option value="">Select a session…</option>
-          {sessions?.map((s) => (
-            <option key={s.id} value={s.id}>
-              {format(new Date(s.scheduledStart), 'dd MMM, HH:mm')} — {s.title}
-            </option>
-          ))}
-        </select>
-      </Card>
+        <>
+          <Card className="mb-6">
+            <div className="flex flex-wrap items-end gap-3">
+              <button type="button" className="btn-secondary" onClick={() => shiftDay(-1)}>
+                <ChevronLeft className="h-4 w-4" aria-hidden />
+                Previous day
+              </button>
 
-      {save.isSuccess && (
-        <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          Attendance saved. Guardians of learners below the threshold have been alerted.
-        </div>
-      )}
-      {save.isError && (
-        <div className="mb-4">
-          <ErrorState message={errorMessage(save.error)} />
-        </div>
-      )}
+              <div>
+                <label className="label" htmlFor="att-date">
+                  Date
+                </label>
+                <input
+                  id="att-date"
+                  className="input"
+                  type="date"
+                  value={dateParam}
+                  onChange={(e) => setDate(e.target.value)}
+                />
+              </div>
 
-      {!sessionId ? (
-        <EmptyState title="Select a session" description="Pick a session above to mark attendance." />
-      ) : isLoading ? (
-        <Loading />
-      ) : error ? (
-        <ErrorState message={errorMessage(error)} onRetry={refetch} />
-      ) : (
-        <div className="space-y-6">
-          <Card title={`Individual attendance — ${roster.individual.length} learners`}>
-            {roster.individual.length ? (
-              <Table headers={['Learner', 'Status']}>
-                {roster.individual.map((row: any) => (
-                  <tr key={row.studentId}>
-                    <td className="td font-medium">{row.fullName}</td>
-                    <td className="td">
-                      <div className="flex flex-wrap gap-1.5">
-                        {STATUSES.map((status) => (
-                          <button
-                            key={status}
-                            type="button"
-                            onClick={() => setMarks((m) => ({ ...m, [row.studentId]: status }))}
-                            className={clsx(
-                              'rounded-md border px-3 py-1 text-xs font-medium transition-colors',
-                              marks[row.studentId] === status
-                                ? 'border-brand-600 bg-brand-600 text-white'
-                                : 'border-slate-300 bg-white text-ink-soft hover:bg-slate-50',
+              <button type="button" className="btn-secondary" onClick={() => shiftDay(1)}>
+                Next day
+                <ChevronRight className="h-4 w-4" aria-hidden />
+              </button>
+
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setDate(format(new Date(), 'yyyy-MM-dd'))}
+              >
+                Today
+              </button>
+            </div>
+          </Card>
+
+          <div className="grid gap-6 lg:grid-cols-[380px_1fr]">
+            <Card title={format(new Date(dateParam), 'EEEE, dd MMMM yyyy')}>
+              {loadingDay ? (
+                <Loading />
+              ) : !register?.length ? (
+                <EmptyState
+                  title="Nothing scheduled"
+                  description="No classes or sessions on this day. Add them on the Timetable."
+                />
+              ) : (
+                <ul className="divide-y divide-slate-100">
+                  {register.map((item) => (
+                    <li key={`${item.kind}-${item.id}`}>
+                      <button
+                        type="button"
+                        onClick={() => pick(item.kind, item.id)}
+                        className={clsx(
+                          'w-full rounded-md px-2 py-3 text-left transition-colors',
+                          selectedId === item.id ? 'bg-brand-50' : 'hover:bg-slate-50',
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p
+                              className={clsx(
+                                'truncate text-sm',
+                                selectedId === item.id
+                                  ? 'font-semibold text-brand-800'
+                                  : 'font-medium text-ink',
+                              )}
+                            >
+                              {item.title}
+                            </p>
+                            <p className="truncate text-xs text-slate-500">
+                              {[item.course?.title, item.group].filter(Boolean).join(' · ') ||
+                                'Everyone'}
+                            </p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-xs tabular-nums text-slate-600">
+                              {format(new Date(item.startAt), 'HH:mm')}
+                            </p>
+                            {item.marked > 0 ? (
+                              <Badge tone="good">{item.marked} marked</Badge>
+                            ) : (
+                              <Badge>not marked</Badge>
                             )}
-                          >
-                            {status.toLowerCase()}
-                          </button>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </Table>
-            ) : (
-              <EmptyState
-                title="No individual roster"
-                description="This session has no course enrolments; use room-level headcounts instead."
-              />
-            )}
-          </Card>
+                          </div>
+                        </div>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
 
-          <Card title="Room-level attendance (classroom panels)">
-            {roster.rooms.length ? (
-              <Table headers={['Classroom', 'Headcount', 'Status']}>
-                {roster.rooms.map((room: any) => (
-                  <tr key={room.classroomId}>
-                    <td className="td">
-                      {room.name}
-                      <p className="text-xs text-slate-500">{room.code}</p>
-                    </td>
-                    <td className="td tabular-nums">{room.headcount ?? 'Not recorded'}</td>
-                    <td className="td">{room.status ? <StatusBadge status={room.status} /> : '—'}</td>
-                  </tr>
-                ))}
-              </Table>
-            ) : (
-              <EmptyState title="No classrooms targeted by this session" />
-            )}
-          </Card>
-        </div>
-      )}
-      </>
+            <div>
+              {save.isSuccess && (
+                <div className="mb-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  Attendance saved. Guardians of learners below the threshold have been alerted.
+                </div>
+              )}
+              {save.isError && (
+                <div className="mb-4">
+                  <ErrorState message={errorMessage(save.error)} />
+                </div>
+              )}
+
+              {!selectedId ? (
+                <EmptyState
+                  title="Select a period"
+                  description="Pick a class from the day on the left to mark its attendance."
+                />
+              ) : isLoading ? (
+                <Loading />
+              ) : error ? (
+                <ErrorState message={errorMessage(error)} onRetry={refetch} />
+              ) : (
+                <div className="space-y-6">
+                  <Card
+                    title={`Learners — ${roster.individual.length}`}
+                    action={
+                      roster.individual.length > 0 && (
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            className="text-xs text-brand-700 hover:underline"
+                            onClick={() => setAll('PRESENT')}
+                          >
+                            All present
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs text-brand-700 hover:underline"
+                            onClick={() => setAll('ABSENT')}
+                          >
+                            All absent
+                          </button>
+                        </div>
+                      )
+                    }
+                  >
+                    {roster.individual.length ? (
+                      <Table headers={['Learner', 'Status']}>
+                        {roster.individual.map((row: any) => (
+                          <tr key={row.studentId}>
+                            <td className="td font-medium">{row.fullName}</td>
+                            <td className="td">
+                              <div className="flex flex-wrap gap-1.5">
+                                {STATUSES.map((status) => (
+                                  <button
+                                    key={status}
+                                    type="button"
+                                    onClick={() =>
+                                      setMarks((m) => ({ ...m, [row.studentId]: status }))
+                                    }
+                                    className={clsx(
+                                      'rounded-md border px-3 py-1 text-xs font-medium transition-colors',
+                                      marks[row.studentId] === status
+                                        ? 'border-brand-600 bg-brand-600 text-white'
+                                        : 'border-slate-300 bg-white text-ink-soft hover:bg-slate-50',
+                                    )}
+                                  >
+                                    {status.toLowerCase()}
+                                  </button>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </Table>
+                    ) : (
+                      <EmptyState
+                        title="No learners"
+                        description="Nobody is enrolled for this period yet. Enrol learners into the class first."
+                      />
+                    )}
+                  </Card>
+
+                  {roster.rooms?.length > 0 && (
+                    <Card title="Room headcounts (classroom panels)">
+                      <Table headers={['Classroom', 'Headcount', 'Status']}>
+                        {roster.rooms.map((room: any) => (
+                          <tr key={room.classroomId}>
+                            <td className="td">
+                              {room.name}
+                              <p className="text-xs text-slate-500">{room.code}</p>
+                            </td>
+                            <td className="td tabular-nums">{room.headcount ?? 'Not recorded'}</td>
+                            <td className="td">
+                              {room.status ? <StatusBadge status={room.status} /> : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </Table>
+                    </Card>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
       )}
     </>
   );

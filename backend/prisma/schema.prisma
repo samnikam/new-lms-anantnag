@@ -671,6 +671,11 @@ model Attendance {
   sessionId String?
   session   LiveSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
+  // A scheduled class period that is not a broadcast. Most school attendance
+  // is taken against one of these, not against a live session.
+  eventId String?
+  event   CalendarEvent? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
   studentId String?
   student   User?   @relation("AttendanceStudent", fields: [studentId], references: [id], onDelete: Cascade)
 
@@ -688,8 +693,10 @@ model Attendance {
   updatedAt DateTime @updatedAt
 
   @@unique([sessionId, studentId])
+  @@unique([eventId, studentId])
   @@index([studentId, date])
   @@index([classroomId, date])
+  @@index([eventId])
 }
 
 model AttendanceCorrection {
@@ -980,6 +987,8 @@ model CalendarEvent {
   siteId         String?
   sessionId      String?
   createdById    String?
+
+  attendance Attendance[]
 
   @@index([startAt])
   @@index([classId])
