@@ -22,7 +22,20 @@ export function CoursesPage() {
   const [search, setSearch] = useState('');
   const [state, setState] = useState('');
   const [creating, setCreating] = useState(false);
+  const [showCode, setShowCode] = useState(false);
   const [form, setForm] = useState({ code: '', title: '', category: '', description: '' });
+
+  // A subject needs a unique code in the database, but nobody should have to
+  // invent one. It follows the name unless the user chooses to set it.
+  const derivedCode = (title: string) => {
+    const base =
+      title
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '-')
+        .replace(/^-|-$/g, '')
+        .slice(0, 12) || 'SUBJ';
+    return base + '-' + String(Date.now()).slice(-3);
+  };
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['courses', search, state],
@@ -31,9 +44,17 @@ export function CoursesPage() {
   });
 
   const create = useMutation({
-    mutationFn: async () => (await api.post('/courses', form)).data,
+    mutationFn: async () => {
+      const payload = {
+        title: form.title,
+        code: form.code.trim() || derivedCode(form.title),
+        description: form.description || undefined,
+      };
+      return (await api.post('/courses', payload)).data;
+    },
     onSuccess: () => {
       setCreating(false);
+      setShowCode(false);
       setForm({ code: '', title: '', category: '', description: '' });
       qc.invalidateQueries({ queryKey: ['courses'] });
     },
@@ -119,7 +140,7 @@ export function CoursesPage() {
             <button
               type="button"
               className="btn-primary"
-              disabled={!form.code || !form.title || create.isPending}
+              disabled={!form.title || create.isPending}
               onClick={() => create.mutate()}
             >
               Create subject
@@ -127,24 +148,47 @@ export function CoursesPage() {
           </>
         }
       >
-        <Field label="Subject code" hint="A short unique identifier, e.g. SCI-10.">
-          <input className="input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+        <Field label="Subject name" hint="What the school calls it, e.g. Mathematics.">
+          <input
+            className="input"
+            placeholder="Mathematics"
+            value={form.title}
+            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            autoFocus
+          />
         </Field>
-        <Field label="Title">
-          <input className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-        </Field>
-        <Field label="Category">
-          <input className="input" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-        </Field>
-        <Field label="Description">
+
+        <Field label="What will learners study?" hint="Optional — you can add this later.">
           <textarea
             className="input"
             rows={3}
+            placeholder="Algebra, geometry and trigonometry for Class 10."
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
           />
         </Field>
-        {create.isError && <p className="text-sm text-red-600">{errorMessage(create.error)}</p>}
+
+        {/* The code is generated; it only appears if someone wants to set it. */}
+        {showCode ? (
+          <Field label="Subject code" hint="Must be unique across the portal.">
+            <input
+              className="input"
+              value={form.code}
+              placeholder={form.title ? derivedCode(form.title) : 'SCI-10'}
+              onChange={(e) => setForm({ ...form, code: e.target.value })}
+            />
+          </Field>
+        ) : (
+          <button
+            type="button"
+            className="text-xs text-brand-700 hover:underline"
+            onClick={() => setShowCode(true)}
+          >
+            Set a subject code manually
+          </button>
+        )}
+
+        {create.isError && <p className="mt-3 text-sm text-red-600">{errorMessage(create.error)}</p>}
       </Modal>
     </>
   );
@@ -478,7 +522,7 @@ export function CourseDetailPage() {
 
       <Modal
         open={cloning}
-        title="Clone course"
+        title="Duplicate subject"
         onClose={() => setCloning(false)}
         footer={
           <>
@@ -492,9 +536,9 @@ export function CourseDetailPage() {
         }
       >
         <p className="mb-4 text-sm text-ink-soft">
-          Creates a new draft with every module, lesson and resource copied across.
+          Creates a new draft subject with every module, lesson and resource copied across.
         </p>
-        <Field label="New course code">
+        <Field label="New subject code">
           <input className="input" value={newCode} onChange={(e) => setNewCode(e.target.value)} />
         </Field>
         {clone.isError && <p className="text-sm text-red-600">{errorMessage(clone.error)}</p>}
@@ -572,8 +616,13 @@ function EditCourseModal({
         <Field label="Subject code">
           <input className="input" value={form.code ?? ''} onChange={(e) => setForm({ ...form, code: e.target.value })} />
         </Field>
-        <Field label="Category">
-          <input className="input" value={form.category ?? ''} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+        <Field label="Stream" hint="Optional grouping, e.g. Science or Commerce.">
+          <input
+            className="input"
+            placeholder="Science"
+            value={form.category ?? ''}
+            onChange={(e) => setForm({ ...form, category: e.target.value })}
+          />
         </Field>
       </div>
 
