@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link2, Plus } from 'lucide-react';
+import { KeyRound, Link2, Plus } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { ROLE_LABELS, type Role } from '../lib/auth';
 import {
@@ -31,6 +31,7 @@ export function UsersPage() {
   const [role, setRole] = useState('');
   const [creating, setCreating] = useState(false);
   const [linking, setLinking] = useState(false);
+  const [resetting, setResetting] = useState<any | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['users', search, role],
@@ -104,19 +105,29 @@ export function UsersPage() {
                 <td className="td">
                   <StatusBadge status={u.status} />
                 </td>
-                <td className="td text-right">
-                  <button
-                    type="button"
-                    className="text-sm text-brand-700 hover:underline"
-                    onClick={() =>
-                      setStatus.mutate({
-                        id: u.id,
-                        status: u.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE',
-                      })
-                    }
-                  >
-                    {u.status === 'ACTIVE' ? 'Suspend' : 'Activate'}
-                  </button>
+                <td className="td">
+                  <div className="flex justify-end gap-3">
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"
+                      onClick={() => setResetting(u)}
+                    >
+                      <KeyRound className="h-3.5 w-3.5" aria-hidden />
+                      Reset password
+                    </button>
+                    <button
+                      type="button"
+                      className="text-sm text-brand-700 hover:underline"
+                      onClick={() =>
+                        setStatus.mutate({
+                          id: u.id,
+                          status: u.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE',
+                        })
+                      }
+                    >
+                      {u.status === 'ACTIVE' ? 'Suspend' : 'Activate'}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -133,6 +144,7 @@ export function UsersPage() {
         }}
       />
       <LinkParentModal open={linking} onClose={() => setLinking(false)} />
+      <ResetPasswordModal user={resetting} onClose={() => setResetting(null)} />
     </>
   );
 }
@@ -341,6 +353,106 @@ function LinkParentModal({ open, onClose }: { open: boolean; onClose: () => void
         </Table>
       ) : (
         <p className="text-sm text-slate-500">No links yet.</p>
+      )}
+    </Modal>
+  );
+}
+
+/**
+ * Resets a password on a user's behalf. The realistic recovery route in a
+ * school: someone tells the office they are locked out, and the office fixes
+ * it — the self-service code depends on email or SMS actually reaching them.
+ */
+function ResetPasswordModal({ user, onClose }: { user: any | null; onClose: () => void }) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+
+  useEffect(() => {
+    if (user) {
+      setPassword('');
+      setConfirm('');
+    }
+  }, [user]);
+
+  const reset = useMutation({
+    mutationFn: async () =>
+      (await api.post(`/users/${user.id}/reset-password`, { newPassword: password })).data,
+  });
+
+  const mismatch = !!confirm && password !== confirm;
+
+  return (
+    <Modal
+      open={!!user}
+      title={`Reset password — ${user?.fullName ?? ''}`}
+      onClose={() => {
+        reset.reset();
+        onClose();
+      }}
+      footer={
+        <>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              reset.reset();
+              onClose();
+            }}
+          >
+            {reset.isSuccess ? 'Done' : 'Cancel'}
+          </button>
+          {!reset.isSuccess && (
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={password.length < 8 || mismatch || reset.isPending}
+              onClick={() => reset.mutate()}
+            >
+              {reset.isPending ? 'Resetting…' : 'Reset password'}
+            </button>
+          )}
+        </>
+      }
+    >
+      {reset.isSuccess ? (
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+          <p className="font-medium">Password reset.</p>
+          <p className="mt-1">
+            Give {user?.fullName} the new password and ask them to change it after signing in. All
+            their other sessions have been ended.
+          </p>
+        </div>
+      ) : (
+        <>
+          <p className="mb-4 text-sm text-ink-soft">
+            This signs {user?.fullName} out everywhere and replaces their password with the one you
+            set here.
+          </p>
+
+          <Field label="New password" hint="At least 8 characters.">
+            <input
+              className="input"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoFocus
+            />
+          </Field>
+
+          <Field
+            label="Confirm new password"
+            error={mismatch ? 'The two passwords do not match.' : undefined}
+          >
+            <input
+              className="input"
+              type="password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+            />
+          </Field>
+
+          {reset.isError && <p className="text-sm text-red-600">{errorMessage(reset.error)}</p>}
+        </>
       )}
     </Modal>
   );

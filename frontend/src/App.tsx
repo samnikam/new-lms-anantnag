@@ -27,6 +27,7 @@ import { AuditPage } from './pages/Audit';
 import { SettingsPage } from './pages/Settings';
 import { LibraryPage } from './pages/Library';
 import { ProfilePage } from './pages/Profile';
+import { ForgotPasswordPage, ResetPasswordPage } from './pages/PasswordReset';
 import { NotFoundPage, ForbiddenPage } from './pages/Errors';
 
 /** Blocks a route whose role list does not include the signed-in role. */
@@ -55,6 +56,8 @@ export function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/kiosk-login" element={<KioskLoginPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/verify/:token" element={<VerifyCertificatePage />} />
         <Route path="/verify" element={<VerifyCertificatePage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
@@ -65,6 +68,7 @@ export function App() {
   return (
     <Routes>
       <Route path="/verify/:token" element={<VerifyCertificatePage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/login" element={<Navigate to="/" replace />} />
 
       <Route element={<Layout />}>

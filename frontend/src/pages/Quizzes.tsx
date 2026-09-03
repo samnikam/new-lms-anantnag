@@ -119,6 +119,8 @@ function ResultsModal({ quizId, onClose }: { quizId: string | null; onClose: () 
     enabled: !!quizId,
   });
 
+  const [reviewing, setReviewing] = useState<any | null>(null);
+
   const publish = useMutation({
     mutationFn: async () => (await api.post(`/quizzes/${quizId}/publish-results`, {})).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['quizzes'] }),
@@ -145,7 +147,7 @@ function ResultsModal({ quizId, onClose }: { quizId: string | null; onClose: () 
       ) : !data?.length ? (
         <EmptyState title="No attempts yet" />
       ) : (
-        <Table headers={['Learner', 'Score', 'Result', 'Integrity flags']}>
+        <Table headers={['Learner', 'Score', 'Result', 'Integrity flags', '']}>
           {data.map((a: any) => (
             <tr key={a.id}>
               <td className="td font-medium">{a.student.fullName}</td>
@@ -168,10 +170,115 @@ function ResultsModal({ quizId, onClose }: { quizId: string | null; onClose: () 
                   <span className="text-xs text-slate-400">clean</span>
                 )}
               </td>
+              <td className="td text-right">
+                {a.answers?.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-sm text-brand-700 hover:underline"
+                    onClick={() => setReviewing(a)}
+                  >
+                    Mark {a.answers.length} answer{a.answers.length === 1 ? '' : 's'}
+                  </button>
+                )}
+              </td>
             </tr>
           ))}
         </Table>
       )}
+
+      <ManualReviewPanel
+        attempt={reviewing}
+        onClose={() => setReviewing(null)}
+        onGraded={() => {
+          qc.invalidateQueries({ queryKey: ['quiz-results', quizId] });
+          setReviewing(null);
+        }}
+      />
+    </Modal>
+  );
+}
+
+/**
+ * Written answers cannot be auto-scored, so an attempt containing one sits at
+ * "manual review" until a human marks it. Without this the learner never gets
+ * a result at all.
+ */
+function ManualReviewPanel({
+  attempt,
+  onClose,
+  onGraded,
+}: {
+  attempt: any | null;
+  onClose: () => void;
+  onGraded: () => void;
+}) {
+  const [marks, setMarks] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (attempt) setMarks({});
+  }, [attempt]);
+
+  const grade = useMutation({
+    mutationFn: async () => {
+      for (const [answerId, value] of Object.entries(marks)) {
+        await api.post(`/answers/${answerId}/review`, { awardedMarks: Number(value) });
+      }
+      return true;
+    },
+    onSuccess: onGraded,
+  });
+
+  const complete =
+    attempt && attempt.answers.every((a: any) => marks[a.id] !== undefined && marks[a.id] !== '');
+
+  return (
+    <Modal
+      open={!!attempt}
+      title={`Mark written answers — ${attempt?.student.fullName ?? ''}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!complete || grade.isPending}
+            onClick={() => grade.mutate()}
+          >
+            {grade.isPending ? 'Saving…' : 'Save marks'}
+          </button>
+        </>
+      }
+    >
+      <p className="mb-4 text-sm text-ink-soft">
+        The attempt stays unscored until every written answer is marked.
+      </p>
+
+      <ul className="space-y-4">
+        {attempt?.answers.map((a: any) => (
+          <li key={a.id} className="rounded-md border border-slate-200 p-3">
+            <p className="text-sm font-medium text-ink">{a.question.body}</p>
+            <p className="mt-1 whitespace-pre-wrap rounded bg-slate-50 p-2 text-sm text-ink-soft">
+              {a.textAnswer || <span className="italic text-slate-400">No answer given</span>}
+            </p>
+            <div className="mt-2 w-40">
+              <label className="label">Marks (out of {a.question.marks})</label>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={a.question.marks}
+                value={marks[a.id] ?? ''}
+                onChange={(e) => setMarks({ ...marks, [a.id]: e.target.value })}
+              />
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      {grade.isError && <p className="mt-3 text-sm text-red-600">{errorMessage(grade.error)}</p>}
     </Modal>
   );
 }

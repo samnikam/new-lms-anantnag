@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, Pencil, Plus, Send, UserPlus, X } from 'lucide-react';
+import { Copy, Pencil, Plus, Send, Trash2, UserPlus, X } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import {
@@ -204,6 +204,9 @@ export function CourseDetailPage() {
   const [newCode, setNewCode] = useState('');
   const [assigning, setAssigning] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [renaming, setRenaming] = useState<any | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [confirmRemove, setConfirmRemove] = useState<any | null>(null);
 
   const { data: course, isLoading, error, refetch } = useQuery({
     queryKey: ['course', id],
@@ -227,6 +230,37 @@ export function CourseDetailPage() {
     onSuccess: () => {
       setAddingTo(null);
       setLessonTitle('');
+      invalidate();
+    },
+  });
+
+  // Content is authored under time pressure, so a typo has to be fixable
+  // without rebuilding the module around it.
+  const rename = useMutation({
+    mutationFn: async () =>
+      (
+        await api.patch(
+          renaming.kind === 'module' ? `/modules/${renaming.id}` : `/lessons/${renaming.id}`,
+          { title: renameValue },
+        )
+      ).data,
+    onSuccess: () => {
+      setRenaming(null);
+      invalidate();
+    },
+  });
+
+  const removeItem = useMutation({
+    mutationFn: async () =>
+      (
+        await api.delete(
+          confirmRemove.kind === 'module'
+            ? `/modules/${confirmRemove.id}`
+            : `/lessons/${confirmRemove.id}`,
+        )
+      ).data,
+    onSuccess: () => {
+      setConfirmRemove(null);
       invalidate();
     },
   });
@@ -322,9 +356,37 @@ export function CourseDetailPage() {
               key={mod.id}
               title={mod.title}
               action={
-                <button type="button" className="text-sm text-brand-700" onClick={() => setAddingTo(mod.id)}>
-                  + Lesson
-                </button>
+                <div className="flex items-center gap-2">
+                  <button type="button" className="text-sm text-brand-700" onClick={() => setAddingTo(mod.id)}>
+                    + Lesson
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded p-1 text-brand-700 hover:bg-brand-50"
+                    aria-label={`Rename ${mod.title}`}
+                    onClick={() => {
+                      setRenaming({ kind: 'module', id: mod.id, title: mod.title });
+                      setRenameValue(mod.title);
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded p-1 text-red-600 hover:bg-red-50"
+                    aria-label={`Remove ${mod.title}`}
+                    onClick={() =>
+                      setConfirmRemove({
+                        kind: 'module',
+                        id: mod.id,
+                        title: mod.title,
+                        count: mod.lessons.length,
+                      })
+                    }
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               }
             >
               {mod.lessons.length ? (
@@ -338,7 +400,30 @@ export function CourseDetailPage() {
                           {lesson.resources.length} resource{lesson.resources.length === 1 ? '' : 's'}
                         </p>
                       </div>
-                      <StatusBadge status={lesson.state} />
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={lesson.state} />
+                        <button
+                          type="button"
+                          className="rounded p-1 text-brand-700 hover:bg-brand-50"
+                          aria-label={`Rename ${lesson.title}`}
+                          onClick={() => {
+                            setRenaming({ kind: 'lesson', id: lesson.id, title: lesson.title });
+                            setRenameValue(lesson.title);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded p-1 text-red-600 hover:bg-red-50"
+                          aria-label={`Remove ${lesson.title}`}
+                          onClick={() =>
+                            setConfirmRemove({ kind: 'lesson', id: lesson.id, title: lesson.title })
+                          }
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -463,6 +548,67 @@ export function CourseDetailPage() {
           </Card>
         </div>
       </div>
+
+      <Modal
+        open={!!renaming}
+        title={`Rename ${renaming?.kind ?? ''}`}
+        onClose={() => setRenaming(null)}
+        footer={
+          <>
+            <button type="button" className="btn-secondary" onClick={() => setRenaming(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={!renameValue.trim() || rename.isPending}
+              onClick={() => rename.mutate()}
+            >
+              Save
+            </button>
+          </>
+        }
+      >
+        <Field label="Title">
+          <input
+            className="input"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            autoFocus
+          />
+        </Field>
+        {rename.isError && <p className="text-sm text-red-600">{errorMessage(rename.error)}</p>}
+      </Modal>
+
+      <Modal
+        open={!!confirmRemove}
+        title={`Remove "${confirmRemove?.title ?? ''}"?`}
+        onClose={() => setConfirmRemove(null)}
+        footer={
+          <>
+            <button type="button" className="btn-secondary" onClick={() => setConfirmRemove(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn-danger"
+              disabled={removeItem.isPending}
+              onClick={() => removeItem.mutate()}
+            >
+              Remove
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-soft">
+          {confirmRemove?.kind === 'module' && confirmRemove?.count > 0
+            ? `This module contains ${confirmRemove.count} lesson(s); they are removed with it, along with learner progress against them.`
+            : 'Learner progress recorded against this lesson is removed with it.'}
+        </p>
+        {removeItem.isError && (
+          <p className="mt-3 text-sm text-red-600">{errorMessage(removeItem.error)}</p>
+        )}
+      </Modal>
 
       <Modal
         open={assigning}

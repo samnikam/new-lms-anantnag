@@ -24,6 +24,7 @@ export function SitesPage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<'schools' | 'sites' | 'classrooms' | 'devices'>('schools');
   const [addingRoom, setAddingRoom] = useState(false);
+  const [addingDevice, setAddingDevice] = useState(false);
 
   const readOnly = user!.role === 'DEPT_OVERSIGHT';
 
@@ -64,12 +65,21 @@ export function SitesPage() {
         title="Sites & Devices"
         description="Schools and institutes, their classrooms, and live panel status."
         actions={
-          !readOnly &&
-          tab === 'classrooms' && (
-            <button type="button" className="btn-primary" onClick={() => setAddingRoom(true)}>
-              <Plus className="h-4 w-4" aria-hidden />
-              Add classroom
-            </button>
+          !readOnly && (
+            <>
+              {tab === 'classrooms' && (
+                <button type="button" className="btn-primary" onClick={() => setAddingRoom(true)}>
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Add classroom
+                </button>
+              )}
+              {tab === 'devices' && (
+                <button type="button" className="btn-primary" onClick={() => setAddingDevice(true)}>
+                  <Plus className="h-4 w-4" aria-hidden />
+                  Register device
+                </button>
+              )}
+            </>
           )
         }
       />
@@ -208,6 +218,17 @@ export function SitesPage() {
         </Card>
       )}
 
+      <AddDeviceModal
+        open={addingDevice}
+        onClose={() => setAddingDevice(false)}
+        onDone={() => {
+          setAddingDevice(false);
+          qc.invalidateQueries({ queryKey: ['devices'] });
+          qc.invalidateQueries({ queryKey: ['status-board'] });
+          qc.invalidateQueries({ queryKey: ['classrooms'] });
+        }}
+      />
+
       <AddClassroomModal
         open={addingRoom}
         onClose={() => setAddingRoom(false)}
@@ -328,6 +349,157 @@ function AddClassroomModal({
       </div>
 
       {create.isError && <p className="text-sm text-red-600">{errorMessage(create.error)}</p>}
+    </Modal>
+  );
+}
+
+const DEVICE_TYPES = [
+  ['INTERACTIVE_PANEL', 'Interactive panel'],
+  ['OPS_PC', 'OPS PC'],
+  ['PTZ_CAMERA', 'PTZ camera'],
+  ['WEBCAM', 'Webcam'],
+  ['UPS', 'UPS'],
+  ['ROUTER', 'Router'],
+] as const;
+
+/**
+ * Registers a panel or OPS PC against a classroom. Until a device is
+ * registered its agent cannot report a heartbeat, so it never appears on the
+ * status board — the serial number here is what the classroom agent sends.
+ */
+function AddDeviceModal({
+  open,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [form, setForm] = useState({
+    classroomId: '',
+    type: 'INTERACTIVE_PANEL' as string,
+    serialNo: '',
+    model: '',
+    ipAddress: '',
+    notes: '',
+  });
+
+  const { data: classrooms } = useQuery({
+    queryKey: ['classrooms'],
+    queryFn: async () => (await api.get<any[]>('/classrooms')).data,
+    enabled: open,
+  });
+
+  const create = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post('/devices', {
+          classroomId: form.classroomId,
+          type: form.type,
+          serialNo: form.serialNo.trim(),
+          model: form.model || undefined,
+          ipAddress: form.ipAddress || undefined,
+          notes: form.notes || undefined,
+        })
+      ).data,
+    onSuccess: () => {
+      setForm({ ...form, serialNo: '', model: '', ipAddress: '', notes: '' });
+      onDone();
+    },
+  });
+
+  return (
+    <Modal
+      open={open}
+      title="Register a device"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!form.classroomId || !form.serialNo.trim() || create.isPending}
+            onClick={() => create.mutate()}
+          >
+            {create.isPending ? 'Registering…' : 'Register device'}
+          </button>
+        </>
+      }
+    >
+      <Field label="Classroom">
+        <select
+          className="input"
+          value={form.classroomId}
+          onChange={(e) => setForm({ ...form, classroomId: e.target.value })}
+        >
+          <option value="">Select a classroom…</option>
+          {classrooms?.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.site.name} — {c.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Device type">
+          <select
+            className="input"
+            value={form.type}
+            onChange={(e) => setForm({ ...form, type: e.target.value })}
+          >
+            {DEVICE_TYPES.map(([v, l]) => (
+              <option key={v} value={v}>
+                {l}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Serial number" hint="Must match what the classroom agent reports.">
+          <input
+            className="input"
+            placeholder="IP-043"
+            value={form.serialNo}
+            onChange={(e) => setForm({ ...form, serialNo: e.target.value })}
+          />
+        </Field>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Model">
+          <input
+            className="input"
+            placeholder='75" 4K Interactive Panel'
+            value={form.model}
+            onChange={(e) => setForm({ ...form, model: e.target.value })}
+          />
+        </Field>
+        <Field label="IP address">
+          <input
+            className="input"
+            value={form.ipAddress}
+            onChange={(e) => setForm({ ...form, ipAddress: e.target.value })}
+          />
+        </Field>
+      </div>
+
+      <Field label="Notes">
+        <input
+          className="input"
+          value={form.notes}
+          onChange={(e) => setForm({ ...form, notes: e.target.value })}
+        />
+      </Field>
+
+      <p className="text-xs text-slate-500">
+        A new device shows as offline until its agent sends a heartbeat.
+      </p>
+
+      {create.isError && <p className="mt-3 text-sm text-red-600">{errorMessage(create.error)}</p>}
     </Modal>
   );
 }

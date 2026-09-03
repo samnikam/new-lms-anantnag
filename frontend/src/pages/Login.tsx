@@ -68,6 +68,12 @@ export function LoginPage() {
             />
           </Field>
 
+          <div className="mb-4 text-right">
+            <Link to="/forgot-password" className="text-xs text-brand-700 hover:underline">
+              Forgotten your password?
+            </Link>
+          </div>
+
           <button type="submit" className="btn-primary w-full" disabled={busy}>
             {busy && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
             {busy ? 'Signing in…' : 'Sign in'}
