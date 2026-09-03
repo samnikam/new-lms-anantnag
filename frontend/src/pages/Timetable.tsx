@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format, isSameDay, isToday } from 'date-fns';
-import { CalendarPlus, Pencil, Trash2 } from 'lucide-react';
+import { CalendarPlus, Pencil, Plus, Trash2 } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -263,6 +263,7 @@ function EntryModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const qc = useQueryClient();
   const [form, setForm] = useState(EMPTY);
   const [conflict, setConflict] = useState<string | null>(null);
   const isEdit = !!event;
@@ -276,6 +277,12 @@ function EntryModal({
   const { data: batches } = useQuery({
     queryKey: ['batches'],
     queryFn: async () => (await api.get<any[]>('/batches')).data,
+    enabled: open,
+  });
+
+  const { data: years } = useQuery({
+    queryKey: ['academic-years'],
+    queryFn: async () => (await api.get<any[]>('/academic-years')).data,
     enabled: open,
   });
 
@@ -331,12 +338,47 @@ function EntryModal({
     },
   });
 
+  // Creating a subject needs a code; derive one so the user never types it.
+  const createSubject = useMutation({
+    mutationFn: async (title: string) => {
+      const code =
+        title
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, '-')
+          .replace(/^-|-$/g, '')
+          .slice(0, 12) || 'SUBJ';
+      return (await api.post<any>('/courses', { code: `${code}-${Date.now() % 1000}`, title })).data;
+    },
+    onSuccess: (created) => {
+      setForm((f) => ({ ...f, courseId: created.id }));
+      qc.invalidateQueries({ queryKey: ['courses'] });
+    },
+  });
+
+  const createGroup = useMutation({
+    mutationFn: async (name: string) => {
+      const year = years?.find((y: any) => y.isCurrent) ?? years?.[0];
+      if (!year) throw new Error('Create an academic year first, under Academic Structure.');
+      return (
+        await api.post<any>('/batches', {
+          academicYearId: year.id,
+          name,
+          siteId: scopedSiteId ?? form.siteId ?? undefined,
+        })
+      ).data;
+    },
+    onSuccess: (created) => {
+      setForm((f) => ({ ...f, batchId: created.id }));
+      qc.invalidateQueries({ queryKey: ['batches'] });
+    },
+  });
+
   const timesValid = form.startTime < form.endTime;
 
   return (
     <Modal
       open={open}
-      title={isEdit ? 'Edit timetable entry' : 'Add timetable entry'}
+      title={isEdit ? 'Edit timetable entry' : 'Add to timetable'}
       onClose={onClose}
       footer={
         <>
@@ -366,15 +408,19 @@ function EntryModal({
         </div>
       ) : (
         <>
-          <Field label="Title">
+          <Field
+            label="What is happening?"
+            hint="Shown on the timetable, e.g. Mathematics — Period 1, or Half-yearly exam."
+          >
             <input
               className="input"
+              placeholder="Mathematics — Period 1"
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
             />
           </Field>
 
-          <Field label="Type">
+          <Field label="Kind of entry">
             <div className="flex flex-wrap gap-2">
               {EVENT_TYPES.map((t) => (
                 <button
@@ -403,7 +449,7 @@ function EntryModal({
                 onChange={(e) => setForm({ ...form, date: e.target.value })}
               />
             </Field>
-            <Field label="Starts">
+            <Field label="From">
               <input
                 className="input"
                 type="time"
@@ -411,10 +457,7 @@ function EntryModal({
                 onChange={(e) => setForm({ ...form, startTime: e.target.value })}
               />
             </Field>
-            <Field
-              label="Ends"
-              error={!timesValid ? 'Must be after the start time.' : undefined}
-            >
+            <Field label="To" error={!timesValid ? 'Must be after the start time.' : undefined}>
               <input
                 className="input"
                 type="time"
@@ -424,49 +467,50 @@ function EntryModal({
             </Field>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Course" hint="Leave blank for a whole-school entry.">
-              <select
-                className="input"
-                value={form.courseId}
-                onChange={(e) => setForm({ ...form, courseId: e.target.value })}
-              >
-                <option value="">Not course-specific</option>
-                {courses?.items?.map((c: any) => (
-                  <option key={c.id} value={c.id}>
-                    {c.title}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Batch">
-              <select
-                className="input"
-                value={form.batchId}
-                onChange={(e) => setForm({ ...form, batchId: e.target.value })}
-              >
-                <option value="">All batches</option>
-                {batches?.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          </div>
+          <p className="mb-3 mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Who is it for?
+          </p>
+
+          <PickerWithCreate
+            label="Subject"
+            hint="The course this class belongs to. Leave as “Any subject” for a holiday or a general notice."
+            emptyLabel="Any subject"
+            value={form.courseId}
+            onChange={(v) => setForm({ ...form, courseId: v })}
+            options={(courses?.items ?? []).map((c: any) => ({ id: c.id, label: c.title }))}
+            createLabel="New subject"
+            createPlaceholder="e.g. Mathematics — Class 10"
+            onCreate={(name) => createSubject.mutate(name)}
+            creating={createSubject.isPending}
+            createError={createSubject.isError ? errorMessage(createSubject.error) : undefined}
+          />
+
+          <PickerWithCreate
+            label="Class group"
+            hint="The group of students who attend, e.g. Class 10 — A. Leave as “All students” for a whole-school entry."
+            emptyLabel="All students"
+            value={form.batchId}
+            onChange={(v) => setForm({ ...form, batchId: v })}
+            options={(batches ?? []).map((b: any) => ({ id: b.id, label: b.name }))}
+            createLabel="New class group"
+            createPlaceholder="e.g. Class 10 — B"
+            onCreate={(name) => createGroup.mutate(name)}
+            creating={createGroup.isPending}
+            createError={createGroup.isError ? errorMessage(createGroup.error) : undefined}
+          />
 
           {scopedSiteId ? (
             <p className="text-xs text-slate-500">
-              This entry is added to your assigned school automatically.
+              This entry is added to your school automatically.
             </p>
           ) : (
-            <Field label="Site" hint="Leave blank to publish across every site.">
+            <Field label="School" hint="Leave as “All schools” to publish everywhere.">
               <select
                 className="input"
                 value={form.siteId}
                 onChange={(e) => setForm({ ...form, siteId: e.target.value })}
               >
-                <option value="">All sites</option>
+                <option value="">All schools</option>
                 {sites?.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -480,5 +524,96 @@ function EntryModal({
         </>
       )}
     </Modal>
+  );
+}
+
+/**
+ * A dropdown that can also create the thing it is picking. Without this, an
+ * empty list is a dead end — the user has to leave the form, create the record
+ * elsewhere, and start over.
+ */
+function PickerWithCreate({
+  label,
+  hint,
+  emptyLabel,
+  value,
+  onChange,
+  options,
+  createLabel,
+  createPlaceholder,
+  onCreate,
+  creating,
+  createError,
+}: {
+  label: string;
+  hint: string;
+  emptyLabel: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: Array<{ id: string; label: string }>;
+  createLabel: string;
+  createPlaceholder: string;
+  onCreate: (name: string) => void;
+  creating: boolean;
+  createError?: string;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+
+  return (
+    <Field label={label} hint={adding ? undefined : hint} error={createError}>
+      {adding ? (
+        <div className="flex flex-wrap gap-2">
+          <input
+            className="input flex-1"
+            placeholder={createPlaceholder}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoFocus
+          />
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!name.trim() || creating}
+            onClick={() => {
+              onCreate(name.trim());
+              setName('');
+              setAdding(false);
+            }}
+          >
+            {creating ? 'Creating…' : 'Create'}
+          </button>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={() => {
+              setAdding(false);
+              setName('');
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <select
+            className="input flex-1"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+          >
+            <option value="">{emptyLabel}</option>
+            {options.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="btn-secondary" onClick={() => setAdding(true)}>
+            <Plus className="h-4 w-4" aria-hidden />
+            {createLabel}
+          </button>
+        </div>
+      )}
+    </Field>
   );
 }
