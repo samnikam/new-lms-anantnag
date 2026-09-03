@@ -1,1 +1,1 @@
-export { CalendarPage } from './Misc';
+export { TimetablePage as CalendarPage } from './Timetable';

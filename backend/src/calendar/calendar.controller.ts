@@ -1,15 +1,18 @@
-import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { EnrollmentStatus, Role } from '@prisma/client';
+import { Role } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsDate, IsOptional, IsString } from 'class-validator';
+import { IsDate, IsIn, IsOptional, IsString } from 'class-validator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Audit } from '../common/decorators/audit.decorator';
 import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
-import { PrismaService } from '../prisma/prisma.service';
+import { CalendarService } from './calendar.service';
+
+export const EVENT_TYPES = ['CLASS', 'EXAM', 'DEADLINE', 'HOLIDAY', 'EVENT'] as const;
 
 class CreateEventDto {
   @IsString() title!: string;
-  @IsString() type!: string;
+  @IsIn(EVENT_TYPES as unknown as string[]) type!: string;
   @Type(() => Date) @IsDate() startAt!: Date;
   @Type(() => Date) @IsDate() endAt!: Date;
   @IsOptional() @IsString() courseId?: string;
@@ -18,55 +21,80 @@ class CreateEventDto {
   @IsOptional() @IsString() academicYearId?: string;
 }
 
-/** Timetable and academic calendar, scoped per role (§5.6). */
+class UpdateEventDto {
+  @IsOptional() @IsString() title?: string;
+  @IsOptional() @IsIn(EVENT_TYPES as unknown as string[]) type?: string;
+  @IsOptional() @Type(() => Date) @IsDate() startAt?: Date;
+  @IsOptional() @Type(() => Date) @IsDate() endAt?: Date;
+  @IsOptional() @IsString() courseId?: string;
+  @IsOptional() @IsString() batchId?: string;
+  @IsOptional() @IsString() siteId?: string;
+}
+
+/**
+ * Timetable and academic calendar.
+ *
+ * Authoring belongs to the Super Admin and the Academic Admin — the academic
+ * office owns the official timetable. Teachers, learners and guardians read
+ * their own slice of it, which the service narrows server-side.
+ */
 @ApiTags('calendar')
 @Controller('calendar')
 export class CalendarController {
-  constructor(private prisma: PrismaService) {}
+  constructor(private calendar: CalendarService) {}
 
   @Get()
-  async list(
+  list(
     @CurrentUser() user: AuthUser,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('siteId') siteId?: string,
     @Query('studentId') studentId?: string,
+    @Query('courseId') courseId?: string,
+    @Query('batchId') batchId?: string,
+    @Query('type') type?: string,
   ) {
-    const range = {
-      gte: from ? new Date(from) : new Date(Date.now() - 7 * 864e5),
-      lte: to ? new Date(to) : new Date(Date.now() + 60 * 864e5),
-    };
-
-    // Learners (and guardians viewing a child) see only their own courses.
-    let courseFilter: string[] | undefined;
-    const scopeTo = user.role === Role.STUDENT ? user.id : studentId;
-    if (scopeTo && (user.role === Role.STUDENT || user.role === Role.PARENT)) {
-      const enrollments = await this.prisma.enrollment.findMany({
-        where: { studentId: scopeTo, status: EnrollmentStatus.ACTIVE },
-        select: { courseId: true },
-      });
-      courseFilter = enrollments.map((e) => e.courseId);
-    }
-
-    return this.prisma.calendarEvent.findMany({
-      where: {
-        startAt: range,
-        ...(siteId ? { siteId } : {}),
-        ...(courseFilter ? { OR: [{ courseId: { in: courseFilter } }, { courseId: null }] } : {}),
-      },
-      orderBy: { startAt: 'asc' },
+    return this.calendar.list(user, {
+      from: from ? new Date(from) : undefined,
+      to: to ? new Date(to) : undefined,
+      siteId,
+      studentId,
+      courseId,
+      batchId,
+      type,
     });
   }
 
+  /** Tells the UI whether to offer authoring controls at all. */
+  @Get('permissions')
+  permissions(@CurrentUser() user: AuthUser) {
+    const canManage = CalendarService.canManage(user.role);
+    return {
+      canCreate: canManage,
+      canEdit: canManage,
+      canDelete: canManage,
+      scopedToSiteId: user.role === Role.ACADEMIC_ADMIN ? user.siteId ?? null : null,
+    };
+  }
+
   @Post()
-  @Roles(Role.SUPER_ADMIN, Role.ACADEMIC_ADMIN, Role.TEACHER)
-  create(@Body() dto: CreateEventDto, @CurrentUser('id') createdById: string) {
-    return this.prisma.calendarEvent.create({ data: { ...dto, createdById } });
+  @Roles(Role.SUPER_ADMIN, Role.ACADEMIC_ADMIN)
+  @Audit('calendar.create', 'CalendarEvent')
+  create(@Body() dto: CreateEventDto, @CurrentUser() user: AuthUser) {
+    return this.calendar.create(user, dto);
+  }
+
+  @Patch(':id')
+  @Roles(Role.SUPER_ADMIN, Role.ACADEMIC_ADMIN)
+  @Audit('calendar.update', 'CalendarEvent')
+  update(@Param('id') id: string, @Body() dto: UpdateEventDto, @CurrentUser() user: AuthUser) {
+    return this.calendar.update(user, id, dto);
   }
 
   @Delete(':id')
   @Roles(Role.SUPER_ADMIN, Role.ACADEMIC_ADMIN)
-  remove(@Param('id') id: string) {
-    return this.prisma.calendarEvent.delete({ where: { id } });
+  @Audit('calendar.delete', 'CalendarEvent')
+  remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.calendar.remove(user, id);
   }
 }

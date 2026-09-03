@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { format, isSameDay } from 'date-fns';
+import { format } from 'date-fns';
 import { BadgeCheck, Bell, Download, Megaphone, Search, ShieldX } from 'lucide-react';
 import { API_BASE, api, errorMessage, getAccessToken } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -16,57 +16,6 @@ import {
   PageHeader,
   Table,
 } from '../components/ui';
-
-// ─────────────────────────── Calendar ───────────────────────────
-
-export function CalendarPage() {
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['calendar'],
-    queryFn: async () => (await api.get<any[]>('/calendar')).data,
-  });
-
-  if (isLoading) return <Loading />;
-  if (error) return <ErrorState message={errorMessage(error)} onRetry={refetch} />;
-
-  // Group events by day so the timetable reads as an agenda, not a flat list.
-  const days = (data ?? []).reduce<Array<{ date: Date; events: any[] }>>((acc, event) => {
-    const date = new Date(event.startAt);
-    const day = acc.find((d) => isSameDay(d.date, date));
-    if (day) day.events.push(event);
-    else acc.push({ date, events: [event] });
-    return acc;
-  }, []);
-
-  return (
-    <>
-      <PageHeader title="Timetable & Calendar" description="Classes, exams and deadlines." />
-
-      {!days.length ? (
-        <EmptyState title="Nothing scheduled" description="Classes and deadlines appear here once scheduled." />
-      ) : (
-        <div className="space-y-4">
-          {days.map((day) => (
-            <Card key={day.date.toISOString()} title={format(day.date, 'EEEE, dd MMMM yyyy')}>
-              <ul className="divide-y divide-slate-100">
-                {day.events.map((event) => (
-                  <li key={event.id} className="flex items-center justify-between gap-4 py-3">
-                    <div>
-                      <p className="font-medium text-ink">{event.title}</p>
-                      <p className="text-xs text-slate-500">{event.type.toLowerCase()}</p>
-                    </div>
-                    <span className="shrink-0 text-sm tabular-nums text-slate-600">
-                      {format(new Date(event.startAt), 'HH:mm')} – {format(new Date(event.endAt), 'HH:mm')}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
 
 // ───────────────────────── Certificates ─────────────────────────
 
