@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { EnrollmentAction, EnrollmentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthUser } from '../common/decorators/current-user.decorator';
+import { assertSiteAllowed, resolveSiteFilter, scopeSiteId } from '../common/site-scope';
 
 @Injectable()
 export class AcademicService {
@@ -30,17 +32,83 @@ export class AcademicService {
     return this.prisma.academicYear.update({ where: { id }, data: { isCurrent: true } });
   }
 
-  // ───────────────────────────  Batches ───────────────────────────
+  // ──────────────────────── Classes / grades ────────────────────────
 
-  listBatches(filter: { academicYearId?: string; siteId?: string }) {
-    return this.prisma.batch.findMany({
+  /**
+   * A class is a grade at one school — "Class 10" at Govt. School Pahalgam.
+   * Sections live beneath it as batches, and subjects are taught to it.
+   */
+  listClasses(filter: { academicYearId?: string; siteId?: string }) {
+    return this.prisma.schoolClass.findMany({
       where: {
         ...(filter.academicYearId ? { academicYearId: filter.academicYearId } : {}),
         ...(filter.siteId ? { siteId: filter.siteId } : {}),
       },
       include: {
+        site: { select: { id: true, name: true, code: true } },
+        academicYear: { select: { id: true, name: true } },
+        batches: {
+          select: { id: true, name: true, section: true, _count: { select: { enrollments: true } } },
+          orderBy: { name: 'asc' },
+        },
+      },
+      orderBy: [{ level: 'asc' }, { name: 'asc' }],
+    });
+  }
+
+  async createClass(
+    data: { academicYearId: string; siteId: string; name: string; level?: number; description?: string },
+    actor: AuthUser,
+  ) {
+    // A scoped admin creates classes at their own school and nowhere else.
+    const scope = scopeSiteId(actor);
+    if (scope && data.siteId !== scope) {
+      throw new BadRequestException('You can only add classes at your assigned school.');
+    }
+    return this.prisma.schoolClass.create({ data });
+  }
+
+  async updateClass(
+    id: string,
+    data: Partial<{ name: string; level: number; description: string; active: boolean }>,
+    actor: AuthUser,
+  ) {
+    const existing = await this.prisma.schoolClass.findUniqueOrThrow({ where: { id } });
+    assertSiteAllowed(actor, existing.siteId);
+    return this.prisma.schoolClass.update({ where: { id }, data });
+  }
+
+  /** Refused while sections still hang off it, so learners are never orphaned. */
+  async deleteClass(id: string, actor: AuthUser) {
+    const existing = await this.prisma.schoolClass.findUniqueOrThrow({
+      where: { id },
+      include: { _count: { select: { batches: true } } },
+    });
+    assertSiteAllowed(actor, existing.siteId);
+
+    if (existing._count.batches > 0) {
+      throw new BadRequestException(
+        `This class still has ${existing._count.batches} section(s). Move or remove them first, or deactivate the class instead.`,
+      );
+    }
+
+    await this.prisma.schoolClass.delete({ where: { id } });
+    return { ok: true };
+  }
+
+  // ───────────────────────────  Batches ───────────────────────────
+
+  listBatches(filter: { academicYearId?: string; siteId?: string; classId?: string }) {
+    return this.prisma.batch.findMany({
+      where: {
+        ...(filter.academicYearId ? { academicYearId: filter.academicYearId } : {}),
+        ...(filter.siteId ? { siteId: filter.siteId } : {}),
+        ...(filter.classId ? { classId: filter.classId } : {}),
+      },
+      include: {
         academicYear: { select: { name: true } },
         site: { select: { id: true, name: true, code: true } },
+        schoolClass: { select: { id: true, name: true } },
         _count: { select: { enrollments: true } },
       },
       orderBy: { name: 'asc' },

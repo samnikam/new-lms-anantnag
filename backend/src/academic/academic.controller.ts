@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -8,6 +8,7 @@ import { Audit } from '../common/decorators/audit.decorator';
 import { AcademicService } from './academic.service';
 import {
   CreateBatchDto,
+  CreateClassDto,
   CreateYearDto,
   EnrollBatchDto,
   EnrollDto,
@@ -15,6 +16,7 @@ import {
   EnrollmentStatusDto,
   TransferEnrollmentDto,
   UpdateBatchDto,
+  UpdateClassDto,
   WithdrawEnrollmentDto,
 } from './dto';
 
@@ -46,16 +48,52 @@ export class AcademicController {
     return this.academic.setCurrentYear(id);
   }
 
+  @Get('classes')
+  @Roles(...READERS)
+  listClasses(
+    @CurrentUser() actor: AuthUser,
+    @Query('academicYearId') academicYearId?: string,
+    @Query('siteId') siteId?: string,
+  ) {
+    return this.academic.listClasses({
+      academicYearId,
+      siteId: resolveSiteFilter(actor, siteId),
+    });
+  }
+
+  @Post('classes')
+  @Roles(...ADMINS)
+  @Audit('class.create', 'SchoolClass')
+  createClass(@Body() dto: CreateClassDto, @CurrentUser() actor: AuthUser) {
+    return this.academic.createClass(dto, actor);
+  }
+
+  @Patch('classes/:id')
+  @Roles(...ADMINS)
+  @Audit('class.update', 'SchoolClass')
+  updateClass(@Param('id') id: string, @Body() dto: UpdateClassDto, @CurrentUser() actor: AuthUser) {
+    return this.academic.updateClass(id, dto, actor);
+  }
+
+  @Delete('classes/:id')
+  @Roles(...ADMINS)
+  @Audit('class.delete', 'SchoolClass')
+  deleteClass(@Param('id') id: string, @CurrentUser() actor: AuthUser) {
+    return this.academic.deleteClass(id, actor);
+  }
+
   @Get('batches')
   @Roles(...READERS)
   listBatches(
     @CurrentUser() actor: AuthUser,
     @Query('academicYearId') academicYearId?: string,
     @Query('siteId') siteId?: string,
+    @Query('classId') classId?: string,
   ) {
     return this.academic.listBatches({
       academicYearId,
       siteId: resolveSiteFilter(actor, siteId),
+      classId,
     });
   }
 

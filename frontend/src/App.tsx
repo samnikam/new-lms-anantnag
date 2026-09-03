@@ -17,6 +17,7 @@ import { QuizzesPage, QuizAttemptPage } from './pages/Quizzes';
 import { CertificatesPage } from './pages/Certificates';
 import { UsersPage } from './pages/Users';
 import { AcademicPage } from './pages/Academic';
+import { ClassesPage } from './pages/Classes';
 import { SitesPage } from './pages/Sites';
 import { ReportsPage } from './pages/Reports';
 import { AnnouncementsPage } from './pages/Announcements';
@@ -133,6 +134,14 @@ export function App() {
           element={
             <RequireRole roles={['SUPER_ADMIN', 'ACADEMIC_ADMIN']}>
               <UsersPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="classes"
+          element={
+            <RequireRole roles={['SUPER_ADMIN', 'ACADEMIC_ADMIN']}>
+              <ClassesPage />
             </RequireRole>
           }
         />

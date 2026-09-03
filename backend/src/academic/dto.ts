@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayNotEmpty, IsArray, IsBoolean, IsDate, IsEnum, IsOptional, IsString } from 'class-validator';
+import { ArrayNotEmpty, IsArray, IsBoolean, IsDate, IsEnum, IsInt, IsOptional, IsString } from 'class-validator';
 import { EnrollmentStatus } from '@prisma/client';
 
 export class CreateYearDto {
@@ -9,12 +9,28 @@ export class CreateYearDto {
   @IsOptional() @IsBoolean() isCurrent?: boolean;
 }
 
+export class CreateClassDto {
+  @IsString() academicYearId!: string;
+  @IsString() siteId!: string;
+  @IsString() name!: string;
+  @IsOptional() @IsInt() level?: number;
+  @IsOptional() @IsString() description?: string;
+}
+
+export class UpdateClassDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsInt() level?: number;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsBoolean() active?: boolean;
+}
+
 export class CreateBatchDto {
   @IsString() academicYearId!: string;
   @IsString() name!: string;
   @IsOptional() @IsString() siteId?: string;
   @IsOptional() @IsString() grade?: string;
   @IsOptional() @IsString() section?: string;
+  @IsOptional() @IsString() classId?: string;
 }
 
 export class UpdateBatchDto {

@@ -44,13 +44,13 @@ export function CoursesPage() {
   return (
     <>
       <PageHeader
-        title="Courses"
-        description="Create, structure and publish course content."
+        title="Subjects"
+        description="Subjects taught across the schools — their content, teachers and learners."
         actions={
           canAuthor && (
             <button type="button" className="btn-primary" onClick={() => setCreating(true)}>
               <Plus className="h-4 w-4" aria-hidden />
-              New course
+              New subject
             </button>
           )
         }
@@ -60,7 +60,7 @@ export function CoursesPage() {
         <div className="flex flex-wrap gap-3">
           <input
             className="input max-w-xs"
-            placeholder="Search by title or code…"
+            placeholder="Search subjects by name or code…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             aria-label="Search courses"
@@ -80,10 +80,10 @@ export function CoursesPage() {
       ) : error ? (
         <ErrorState message={errorMessage(error)} onRetry={refetch} />
       ) : !data?.items?.length ? (
-        <EmptyState title="No courses found" description="Adjust your filters or create a new course." />
+        <EmptyState title="No subjects found" description="Adjust your filters or add a new subject." />
       ) : (
         <Card>
-          <Table headers={['Course', 'Category', 'Teachers', 'Modules', 'Learners', 'State']}>
+          <Table headers={['Subject', 'Category', 'Teachers', 'Modules', 'Learners', 'State']}>
             {data.items.map((c: any) => (
               <tr key={c.id}>
                 <td className="td">
@@ -109,7 +109,7 @@ export function CoursesPage() {
 
       <Modal
         open={creating}
-        title="New course"
+        title="New subject"
         onClose={() => setCreating(false)}
         footer={
           <>
@@ -122,12 +122,12 @@ export function CoursesPage() {
               disabled={!form.code || !form.title || create.isPending}
               onClick={() => create.mutate()}
             >
-              Create course
+              Create subject
             </button>
           </>
         }
       >
-        <Field label="Course code" hint="A short unique identifier, e.g. SCI-10.">
+        <Field label="Subject code" hint="A short unique identifier, e.g. SCI-10.">
           <input className="input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} />
         </Field>
         <Field label="Title">
@@ -550,7 +550,7 @@ function EditCourseModal({
   return (
     <Modal
       open={open}
-      title="Edit course"
+      title="Edit subject"
       onClose={onClose}
       footer={
         <>
@@ -569,7 +569,7 @@ function EditCourseModal({
       }
     >
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Course code">
+        <Field label="Subject code">
           <input className="input" value={form.code ?? ''} onChange={(e) => setForm({ ...form, code: e.target.value })} />
         </Field>
         <Field label="Category">

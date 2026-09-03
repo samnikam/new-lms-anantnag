@@ -279,6 +279,7 @@ model Site {
   classrooms Classroom[]
   users      User[]
   batches    Batch[]
+  classes    SchoolClass[]
   tickets    SupportTicket[]
 
   createdAt DateTime @default(now())
@@ -354,7 +355,30 @@ model AcademicYear {
   isCurrent Boolean  @default(false)
 
   batches Batch[]
+  classes SchoolClass[]
   events  CalendarEvent[]
+}
+
+/// A class/grade at one school, e.g. "Class 10" at Govt. School Pahalgam.
+/// Sections live under it as batches; subjects are taught to it as courses.
+model SchoolClass {
+  id             String       @id @default(uuid())
+  academicYearId String
+  academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
+  siteId         String
+  site           Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  name           String
+  level          Int?
+  description    String?
+  active         Boolean      @default(true)
+
+  batches Batch[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([academicYearId, siteId, name])
+  @@index([siteId])
 }
 
 model Batch {
@@ -363,6 +387,8 @@ model Batch {
   academicYear   AcademicYear @relation(fields: [academicYearId], references: [id])
   siteId         String?
   site           Site?        @relation(fields: [siteId], references: [id])
+  classId        String?
+  schoolClass    SchoolClass? @relation(fields: [classId], references: [id])
   name           String
   grade          String?
   section        String?

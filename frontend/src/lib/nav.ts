@@ -74,11 +74,11 @@ export const NAV_ITEMS: NavItem[] = [
   // ── Learning ──────────────────────────────────────────────────────────
   {
     to: '/courses',
-    label: 'Courses',
+    label: 'Subjects',
     icon: BookOpen,
     group: 'learning',
     roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN', 'TEACHER', 'CONTENT_MANAGER'],
-    labelByRole: { TEACHER: 'My Courses' },
+    labelByRole: { TEACHER: 'My Subjects' },
   },
   {
     to: '/my-learning',
@@ -153,6 +153,13 @@ export const NAV_ITEMS: NavItem[] = [
     roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN'],
     // An Academic Admin manages teaching staff and learners, never administrators.
     labelByRole: { ACADEMIC_ADMIN: 'Users' },
+  },
+  {
+    to: '/classes',
+    label: 'Classes',
+    icon: GraduationCap,
+    group: 'administration',
+    roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN'],
   },
   {
     to: '/academic',
