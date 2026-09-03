@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Save } from 'lucide-react';
+import { PencilLine, Save } from 'lucide-react';
 import clsx from 'clsx';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -10,7 +10,9 @@ import {
   Card,
   EmptyState,
   ErrorState,
+  Field,
   Loading,
+  Modal,
   PageHeader,
   ProgressBar,
   StatCard,
@@ -72,6 +74,9 @@ function StudentAttendance() {
 
 /** Teacher roster marking: individual marks and room-level headcounts together. */
 function TeacherAttendance() {
+  const { user } = useAuth();
+  const canCorrect = ['SUPER_ADMIN', 'ACADEMIC_ADMIN'].includes(user!.role);
+  const [view, setView] = useState<'mark' | 'corrections'>('mark');
   const [params, setParams] = useSearchParams();
   const sessionId = params.get('sessionId') ?? '';
   const qc = useQueryClient();
@@ -131,6 +136,29 @@ function TeacherAttendance() {
         }
       />
 
+      {canCorrect && (
+        <div className="mb-4 flex gap-2 border-b border-slate-200">
+          {([['mark', 'Mark attendance'], ['corrections', 'Corrections']] as const).map(([k, l]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setView(k)}
+              className={
+                view === k
+                  ? 'border-b-2 border-brand-700 px-4 py-2 text-sm font-medium text-brand-800'
+                  : 'px-4 py-2 text-sm font-medium text-ink-soft hover:text-ink'
+              }
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {view === 'corrections' ? (
+        <AttendanceCorrections />
+      ) : (
+      <>
       <Card className="mb-6">
         <label className="label" htmlFor="session-picker">
           Session
@@ -225,6 +253,165 @@ function TeacherAttendance() {
           </Card>
         </div>
       )}
+      </>
+      )}
+    </>
+  );
+}
+
+/**
+ * Attendance corrections — the academic office's supervisory job. A teacher
+ * marks; an admin corrects a mistake afterwards, and every correction keeps
+ * the previous value, the reason and the actor.
+ */
+function AttendanceCorrections() {
+  const qc = useQueryClient();
+  const [studentId, setStudentId] = useState('');
+  const [correcting, setCorrecting] = useState<any | null>(null);
+  const [status, setStatus] = useState('PRESENT');
+  const [reason, setReason] = useState('');
+
+  const { data: students } = useQuery({
+    queryKey: ['users', 'students', 'correction'],
+    queryFn: async () =>
+      (await api.get<any>('/users', { params: { role: 'STUDENT', limit: 200 } })).data,
+  });
+
+  const { data: rows, isLoading } = useQuery({
+    queryKey: ['attendance', 'records', studentId],
+    queryFn: async () =>
+      (await api.get<any[]>('/attendance', { params: { studentId: studentId || undefined } })).data,
+  });
+
+  const correct = useMutation({
+    mutationFn: async () =>
+      (await api.patch(`/attendance/${correcting.id}/correct`, { status, reason })).data,
+    onSuccess: () => {
+      setCorrecting(null);
+      setReason('');
+      qc.invalidateQueries({ queryKey: ['attendance'] });
+    },
+  });
+
+  return (
+    <>
+      <Card className="mb-6">
+        <label className="label" htmlFor="student-filter">
+          Learner
+        </label>
+        <select
+          id="student-filter"
+          className="input max-w-md"
+          value={studentId}
+          onChange={(e) => setStudentId(e.target.value)}
+        >
+          <option value="">All learners</option>
+          {students?.items?.map((s: any) => (
+            <option key={s.id} value={s.id}>
+              {s.fullName}
+            </option>
+          ))}
+        </select>
+      </Card>
+
+      <Card title="Attendance records">
+        {isLoading ? (
+          <Loading />
+        ) : !rows?.length ? (
+          <EmptyState
+            title="No attendance recorded yet"
+            description="Records appear once a teacher marks a session."
+          />
+        ) : (
+          <Table headers={['Date', 'Learner', 'Session', 'Kind', 'Status', 'Corrections', '']}>
+            {rows.slice(0, 100).map((r) => (
+              <tr key={r.id}>
+                <td className="td whitespace-nowrap text-slate-600">
+                  {format(new Date(r.date), 'dd MMM yyyy')}
+                </td>
+                <td className="td font-medium">
+                  {r.student?.fullName ?? r.classroom?.name ?? '—'}
+                </td>
+                <td className="td text-slate-600">{r.session?.title ?? '—'}</td>
+                <td className="td text-xs text-slate-500">
+                  {r.kind === 'ROOM_LEVEL' ? `room (${r.headcount ?? 0})` : 'individual'}
+                </td>
+                <td className="td">
+                  <StatusBadge status={r.status} />
+                </td>
+                <td className="td tabular-nums">
+                  {r.corrections?.length ? (
+                    <span title={r.corrections.map((c: any) => c.reason).join(' · ')}>
+                      {r.corrections.length}
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-400">—</span>
+                  )}
+                </td>
+                <td className="td text-right">
+                  {r.studentId && (
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 text-sm text-brand-700 hover:underline"
+                      onClick={() => {
+                        setCorrecting(r);
+                        setStatus(r.status);
+                        setReason('');
+                      }}
+                    >
+                      <PencilLine className="h-4 w-4" aria-hidden />
+                      Correct
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </Table>
+        )}
+      </Card>
+
+      <Modal
+        open={!!correcting}
+        title="Correct attendance"
+        onClose={() => setCorrecting(null)}
+        footer={
+          <>
+            <button type="button" className="btn-secondary" onClick={() => setCorrecting(null)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={reason.trim().length < 5 || status === correcting?.status || correct.isPending}
+              onClick={() => correct.mutate()}
+            >
+              Save correction
+            </button>
+          </>
+        }
+      >
+        <p className="mb-4 text-sm text-ink-soft">
+          {correcting?.student?.fullName} is currently marked{' '}
+          <strong>{correcting?.status?.toLowerCase()}</strong>. The previous value, your reason and
+          your name are all recorded against this change.
+        </p>
+
+        <Field label="Corrected status">
+          <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s.toLowerCase()}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <Field label="Reason" hint="Required — at least 5 characters.">
+          <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} />
+        </Field>
+
+        {correct.isError && <p className="text-sm text-red-600">{errorMessage(correct.error)}</p>}
+      </Modal>
     </>
   );
 }

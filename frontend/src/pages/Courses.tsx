@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, Plus, Send } from 'lucide-react';
+import { Copy, Pencil, Plus, Send, UserPlus, X } from 'lucide-react';
 import { api, errorMessage } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import {
@@ -158,6 +158,8 @@ export function CourseDetailPage() {
   const [lessonTitle, setLessonTitle] = useState('');
   const [cloning, setCloning] = useState(false);
   const [newCode, setNewCode] = useState('');
+  const [assigning, setAssigning] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const { data: course, isLoading, error, refetch } = useQuery({
     queryKey: ['course', id],
@@ -190,6 +192,29 @@ export function CourseDetailPage() {
     onSuccess: invalidate,
   });
 
+  const assignTeacher = useMutation({
+    mutationFn: async (teacherId: string) =>
+      (await api.post(`/courses/${id}/teachers`, { teacherId })).data,
+    onSuccess: () => {
+      setAssigning(false);
+      invalidate();
+    },
+  });
+
+  const removeTeacher = useMutation({
+    mutationFn: async (teacherId: string) =>
+      (await api.delete(`/courses/${id}/teachers/${teacherId}`)).data,
+    onSuccess: invalidate,
+  });
+
+  // Only teachers can be assigned, so the picker asks for that role directly.
+  const { data: teachers } = useQuery({
+    queryKey: ['users', 'teachers'],
+    queryFn: async () =>
+      (await api.get<any>('/users', { params: { role: 'TEACHER', limit: 200 } })).data,
+    enabled: assigning,
+  });
+
   const clone = useMutation({
     mutationFn: async () => (await api.post(`/courses/${id}/clone`, { newCode })).data,
     onSuccess: () => {
@@ -209,6 +234,10 @@ export function CourseDetailPage() {
         actions={
           <>
             <StatusBadge status={course.state} />
+            <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>
+              <Pencil className="h-4 w-4" aria-hidden />
+              Edit
+            </button>
             <button type="button" className="btn-secondary" onClick={() => setCloning(true)}>
               <Copy className="h-4 w-4" aria-hidden />
               Clone
@@ -336,13 +365,44 @@ export function CourseDetailPage() {
                   {course.requiredQuizPct > 0 ? `, ${course.requiredQuizPct}% of quizzes passed` : ''}
                 </dd>
               </div>
-              <div>
-                <dt className="text-slate-500">Teachers</dt>
-                <dd className="mt-0.5">
-                  {course.teachers.map((t: any) => t.teacher.fullName).join(', ') || 'None assigned'}
-                </dd>
-              </div>
             </dl>
+          </Card>
+
+          <Card
+            title="Teachers"
+            action={
+              <button type="button" className="text-sm text-brand-700" onClick={() => setAssigning(true)}>
+                + Assign
+              </button>
+            }
+          >
+            {course.teachers.length ? (
+              <ul className="divide-y divide-slate-100">
+                {course.teachers.map((t: any) => (
+                  <li key={t.teacher.id} className="flex items-center justify-between py-2">
+                    <div>
+                      <p className="text-sm font-medium text-ink">{t.teacher.fullName}</p>
+                      {t.isLead && <p className="text-xs text-slate-500">Lead teacher</p>}
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded p-1.5 text-red-600 hover:bg-red-50"
+                      aria-label={`Remove ${t.teacher.fullName}`}
+                      onClick={() => removeTeacher.mutate(t.teacher.id)}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-slate-500">
+                No teacher assigned yet — learners cannot be taught until one is.
+              </p>
+            )}
+            {removeTeacher.isError && (
+              <p className="mt-2 text-sm text-red-600">{errorMessage(removeTeacher.error)}</p>
+            )}
           </Card>
 
           <Card title="Assessment">
@@ -359,6 +419,62 @@ export function CourseDetailPage() {
           </Card>
         </div>
       </div>
+
+      <Modal
+        open={assigning}
+        title="Assign a teacher"
+        onClose={() => setAssigning(false)}
+        footer={
+          <button type="button" className="btn-secondary" onClick={() => setAssigning(false)}>
+            Close
+          </button>
+        }
+      >
+        <p className="mb-4 text-sm text-ink-soft">
+          An assigned teacher sees this course on their dashboard and can schedule its classes,
+          mark attendance and grade work.
+        </p>
+        {!teachers ? (
+          <Loading />
+        ) : (
+          <ul className="max-h-72 divide-y divide-slate-100 overflow-y-auto">
+            {teachers.items
+              .filter((t: any) => !course.teachers.some((x: any) => x.teacher.id === t.id))
+              .map((t: any) => (
+                <li key={t.id} className="flex items-center justify-between py-2.5">
+                  <div>
+                    <p className="text-sm font-medium">{t.fullName}</p>
+                    <p className="text-xs text-slate-500">
+                      {t.email} {t.site ? `· ${t.site.name}` : ''}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    disabled={assignTeacher.isPending}
+                    onClick={() => assignTeacher.mutate(t.id)}
+                  >
+                    <UserPlus className="h-4 w-4" aria-hidden />
+                    Assign
+                  </button>
+                </li>
+              ))}
+          </ul>
+        )}
+        {assignTeacher.isError && (
+          <p className="mt-3 text-sm text-red-600">{errorMessage(assignTeacher.error)}</p>
+        )}
+      </Modal>
+
+      <EditCourseModal
+        open={editing}
+        course={course}
+        onClose={() => setEditing(false)}
+        onDone={() => {
+          setEditing(false);
+          invalidate();
+        }}
+      />
 
       <Modal
         open={cloning}
@@ -384,5 +500,120 @@ export function CourseDetailPage() {
         {clone.isError && <p className="text-sm text-red-600">{errorMessage(clone.error)}</p>}
       </Modal>
     </>
+  );
+}
+
+/** Edits course metadata and the rules that decide completion. */
+function EditCourseModal({
+  open,
+  course,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  course: any;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [form, setForm] = useState<any>({});
+
+  useEffect(() => {
+    if (!open || !course) return;
+    setForm({
+      title: course.title ?? '',
+      code: course.code ?? '',
+      category: course.category ?? '',
+      level: course.level ?? '',
+      description: course.description ?? '',
+      objectives: course.objectives ?? '',
+      durationHours: course.durationHours ?? '',
+      requiredLessonPct: course.requiredLessonPct ?? 100,
+      requiredQuizPct: course.requiredQuizPct ?? 0,
+      passMark: course.passMark ?? 40,
+    });
+  }, [open, course]);
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const payload: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(form)) {
+        if (v === '' || v === undefined) continue;
+        payload[k] = ['durationHours', 'requiredLessonPct', 'requiredQuizPct', 'passMark'].includes(k)
+          ? Number(v)
+          : v;
+      }
+      return (await api.patch(`/courses/${course.id}`, payload)).data;
+    },
+    onSuccess: onDone,
+  });
+
+  return (
+    <Modal
+      open={open}
+      title="Edit course"
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!form.title || !form.code || save.isPending}
+            onClick={() => save.mutate()}
+          >
+            {save.isPending ? 'Saving…' : 'Save changes'}
+          </button>
+        </>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Course code">
+          <input className="input" value={form.code ?? ''} onChange={(e) => setForm({ ...form, code: e.target.value })} />
+        </Field>
+        <Field label="Category">
+          <input className="input" value={form.category ?? ''} onChange={(e) => setForm({ ...form, category: e.target.value })} />
+        </Field>
+      </div>
+
+      <Field label="Title">
+        <input className="input" value={form.title ?? ''} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+      </Field>
+
+      <Field label="Description">
+        <textarea className="input" rows={3} value={form.description ?? ''} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+      </Field>
+
+      <Field label="Objectives">
+        <textarea className="input" rows={2} value={form.objectives ?? ''} onChange={(e) => setForm({ ...form, objectives: e.target.value })} />
+      </Field>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Level">
+          <input className="input" value={form.level ?? ''} onChange={(e) => setForm({ ...form, level: e.target.value })} />
+        </Field>
+        <Field label="Duration (hours)">
+          <input className="input" type="number" min={0} value={form.durationHours ?? ''} onChange={(e) => setForm({ ...form, durationHours: e.target.value })} />
+        </Field>
+      </div>
+
+      <p className="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Completion rules
+      </p>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field label="Lessons required (%)" hint="Share of lessons to finish.">
+          <input className="input" type="number" min={0} max={100} value={form.requiredLessonPct ?? 100} onChange={(e) => setForm({ ...form, requiredLessonPct: e.target.value })} />
+        </Field>
+        <Field label="Quizzes passed (%)">
+          <input className="input" type="number" min={0} max={100} value={form.requiredQuizPct ?? 0} onChange={(e) => setForm({ ...form, requiredQuizPct: e.target.value })} />
+        </Field>
+        <Field label="Pass mark (%)">
+          <input className="input" type="number" min={0} max={100} value={form.passMark ?? 40} onChange={(e) => setForm({ ...form, passMark: e.target.value })} />
+        </Field>
+      </div>
+
+      {save.isError && <p className="text-sm text-red-600">{errorMessage(save.error)}</p>}
+    </Modal>
   );
 }
