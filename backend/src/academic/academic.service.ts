@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { EnrollmentAction, EnrollmentStatus, Prisma } from '@prisma/client';
+import { EnrollmentAction, EnrollmentStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { assertSiteAllowed, resolveSiteFilter, scopeSiteId } from '../common/site-scope';
@@ -47,6 +47,7 @@ export class AcademicService {
       include: {
         site: { select: { id: true, name: true, code: true } },
         academicYear: { select: { id: true, name: true } },
+        classTeacher: { select: { id: true, fullName: true, email: true } },
         batches: {
           select: { id: true, name: true, section: true, _count: { select: { enrollments: true } } },
           orderBy: { name: 'asc' },
@@ -77,12 +78,35 @@ export class AcademicService {
 
   async updateClass(
     id: string,
-    data: Partial<{ name: string; level: number; description: string; active: boolean }>,
+    data: Partial<{
+      name: string;
+      level: number;
+      description: string;
+      active: boolean;
+      classTeacherId: string | null;
+    }>,
     actor: AuthUser,
   ) {
     const existing = await this.prisma.schoolClass.findUniqueOrThrow({ where: { id } });
     assertSiteAllowed(actor, existing.siteId);
-    return this.prisma.schoolClass.update({ where: { id }, data });
+
+    // The class teacher must be a teacher, and reachable within this scope.
+    if (data.classTeacherId) {
+      const teacher = await this.prisma.user.findUniqueOrThrow({
+        where: { id: data.classTeacherId },
+        select: { role: true, siteId: true },
+      });
+      if (teacher.role !== Role.TEACHER) {
+        throw new BadRequestException('Only a teacher can be put in charge of a class.');
+      }
+      assertSiteAllowed(actor, teacher.siteId);
+    }
+
+    return this.prisma.schoolClass.update({
+      where: { id },
+      data,
+      include: { classTeacher: { select: { id: true, fullName: true } } },
+    });
   }
 
   /** Refused while sections still hang off it, so learners are never orphaned. */

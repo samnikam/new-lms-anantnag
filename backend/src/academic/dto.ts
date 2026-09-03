@@ -19,6 +19,7 @@ export class CreateClassDto {
 
 export class UpdateClassDto {
   @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() classTeacherId?: string;
   @IsOptional() @IsInt() level?: number;
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsBoolean() active?: boolean;

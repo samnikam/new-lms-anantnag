@@ -224,6 +224,7 @@ model User {
   hostedSessions   LiveSession[]       @relation("SessionHost")
   announcements    Announcement[]
   subjectsTaught   ClassSubject[]      @relation("SubjectTeacher")
+  classesInCharge  SchoolClass[]       @relation("ClassTeacher")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -372,6 +373,11 @@ model SchoolClass {
   level          Int?
   description    String?
   active         Boolean      @default(true)
+
+  /// The teacher in charge of the class as a whole, distinct from the subject
+  /// teachers. A school needs one person answerable for a class.
+  classTeacherId String?
+  classTeacher   User?   @relation("ClassTeacher", fields: [classTeacherId], references: [id])
 
   batches  Batch[]
   events   CalendarEvent[]

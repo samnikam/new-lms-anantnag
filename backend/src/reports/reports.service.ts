@@ -180,6 +180,55 @@ export class ReportsService {
     });
   }
 
+  /**
+   * What each teacher is carrying: the classes they are in charge of, the
+   * subjects they teach, and how many learners that adds up to. An academic
+   * office allocates work from this, and it is the one view that shows a
+   * teacher with nothing assigned.
+   */
+  async teacherWorkload(siteId?: string) {
+    const teachers = await this.prisma.user.findMany({
+      where: { role: 'TEACHER', status: 'ACTIVE', ...(siteId ? { siteId } : {}) },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        site: { select: { name: true } },
+        classesInCharge: { select: { id: true, name: true } },
+        subjectsTaught: {
+          select: {
+            course: { select: { id: true, title: true } },
+            class: { select: { id: true, name: true } },
+          },
+        },
+        taughtCourses: {
+          select: { course: { select: { id: true, title: true, _count: { select: { enrollments: true } } } } },
+        },
+        hostedSessions: { where: { status: { in: ['SCHEDULED', 'LIVE'] } }, select: { id: true } },
+      },
+      orderBy: { fullName: 'asc' },
+    });
+
+    return teachers.map((t) => {
+      const courseIds = new Set(t.taughtCourses.map((c) => c.course.id));
+      const learners = t.taughtCourses.reduce((sum, c) => sum + c.course._count.enrollments, 0);
+
+      return {
+        teacherId: t.id,
+        teacher: t.fullName,
+        email: t.email,
+        site: t.site?.name ?? '—',
+        classTeacherOf: t.classesInCharge.map((c) => c.name).join(', ') || '—',
+        classesInCharge: t.classesInCharge.length,
+        subjects: [...new Set(t.subjectsTaught.map((s) => s.course.title))].join(', ') || '—',
+        subjectCount: courseIds.size,
+        classSubjectCount: t.subjectsTaught.length,
+        learners,
+        upcomingSessions: t.hostedSessions.length,
+      };
+    });
+  }
+
   async activityReport(days = 30) {
     const since = new Date(Date.now() - days * 24 * 3600 * 1000);
     const [logins, submissions, attempts, sessions] = await Promise.all([

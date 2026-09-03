@@ -61,6 +61,12 @@ export class ReportsController {
     );
   }
 
+  @Get('teacher-workload')
+  @Roles(...READERS)
+  teacherWorkload(@Query('siteId') siteId?: string) {
+    return this.reports.teacherWorkload(siteId);
+  }
+
   @Get('activity')
   @Roles(...OVERSIGHT)
   activity(@Query('days') days?: string) {
@@ -95,6 +101,8 @@ export class ReportsController {
           return this.reports.assessmentReport(courseId);
         case 'site-utilization':
           return this.reports.siteUtilization(range.from, range.to);
+        case 'teacher-workload':
+          return this.reports.teacherWorkload(siteId);
         default:
           return [];
       }

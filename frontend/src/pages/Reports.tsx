@@ -22,7 +22,13 @@ import {
   Table,
 } from '../components/ui';
 
-type ReportKey = 'site-utilization' | 'completion' | 'attendance' | 'assessment' | 'enrollment';
+type ReportKey =
+  | 'site-utilization'
+  | 'completion'
+  | 'attendance'
+  | 'assessment'
+  | 'enrollment'
+  | 'teacher-workload';
 
 const REPORTS: Array<{ key: ReportKey; label: string; roles: string[] }> = [
   { key: 'site-utilization', label: 'Site utilization', roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN', 'DEPT_OVERSIGHT'] },
@@ -30,6 +36,7 @@ const REPORTS: Array<{ key: ReportKey; label: string; roles: string[] }> = [
   { key: 'attendance', label: 'Attendance', roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN', 'TEACHER'] },
   { key: 'assessment', label: 'Assessment', roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN', 'TEACHER'] },
   { key: 'enrollment', label: 'Enrolment', roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN', 'TEACHER'] },
+  { key: 'teacher-workload', label: 'Teacher workload', roles: ['SUPER_ADMIN', 'ACADEMIC_ADMIN'] },
 ];
 
 export function ReportsPage() {
@@ -101,6 +108,7 @@ export function ReportsPage() {
           {report === 'attendance' && <Attendance rows={data} />}
           {report === 'assessment' && <Assessment rows={data} />}
           {report === 'enrollment' && <Enrollment rows={data} />}
+          {report === 'teacher-workload' && <TeacherWorkload rows={data} />}
         </div>
       )}
     </>
@@ -223,5 +231,58 @@ function Enrollment({ rows }: { rows: any[] }) {
         ))}
       </Table>
     </Card>
+  );
+}
+
+/** Who is carrying what — the view an academic office allocates work from. */
+function TeacherWorkload({ rows }: { rows: any[] }) {
+  const unassigned = rows.filter((r) => r.subjectCount === 0 && r.classesInCharge === 0);
+
+  return (
+    <>
+      {unassigned.length > 0 && (
+        <Card title="Teachers with nothing assigned">
+          <p className="mb-3 text-sm text-ink-soft">
+            {unassigned.length} of {rows.length} teachers have no subject and no class. Assign them
+            from Classes, or from a subject.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {unassigned.map((r) => (
+              <span
+                key={r.teacherId}
+                className="rounded-full bg-amber-100 px-3 py-1 text-xs text-amber-900"
+              >
+                {r.teacher}
+              </span>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <Card title="Teacher workload">
+        <Table headers={['Teacher', 'Site', 'Class teacher of', 'Subjects', 'Learners', 'Upcoming']}>
+          {rows.map((r) => (
+            <tr key={r.teacherId}>
+              <td className="td">
+                <p className="font-medium">{r.teacher}</p>
+                <p className="text-xs text-slate-500">{r.email ?? String.fromCharCode(8212)}</p>
+              </td>
+              <td className="td text-slate-600">{r.site}</td>
+              <td className="td text-slate-600">{r.classTeacherOf}</td>
+              <td className="td text-slate-600">
+                {r.subjects}
+                {r.subjectCount > 0 && (
+                  <span className="block text-xs text-slate-500">
+                    {r.classSubjectCount} class-subject assignments
+                  </span>
+                )}
+              </td>
+              <td className="td tabular-nums">{r.learners}</td>
+              <td className="td tabular-nums">{r.upcomingSessions}</td>
+            </tr>
+          ))}
+        </Table>
+      </Card>
+    </>
   );
 }

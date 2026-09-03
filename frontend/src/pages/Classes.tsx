@@ -15,7 +15,14 @@ import {
   Table,
 } from '../components/ui';
 
-const EMPTY = { name: '', level: '', description: '', siteId: '', academicYearId: '' };
+const EMPTY = {
+  name: '',
+  level: '',
+  description: '',
+  siteId: '',
+  academicYearId: '',
+  classTeacherId: '',
+};
 
 /**
  * Classes (grades) at a school — Class 9, Class 10 — with the sections that
@@ -135,6 +142,15 @@ export function ClassesPage() {
                     <p className="text-xs text-slate-500">
                       {c.site.name} · {c.academicYear.name}
                       {c.description ? ` · ${c.description}` : ''}
+                    </p>
+                    <p className="mt-0.5 text-xs">
+                      {c.classTeacher ? (
+                        <span className="text-ink-soft">
+                          Class teacher: <strong>{c.classTeacher.fullName}</strong>
+                        </span>
+                      ) : (
+                        <span className="text-amber-700">No class teacher assigned</span>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -280,6 +296,13 @@ function ClassModal({
     enabled: open,
   });
 
+  const { data: teachers } = useQuery({
+    queryKey: ['users', 'teachers'],
+    queryFn: async () =>
+      (await api.get<any>('/users', { params: { role: 'TEACHER', limit: 200 } })).data,
+    enabled: open && isEdit,
+  });
+
   useEffect(() => {
     if (!open) return;
     if (schoolClass) {
@@ -289,6 +312,7 @@ function ClassModal({
         description: schoolClass.description ?? '',
         siteId: schoolClass.siteId ?? '',
         academicYearId: schoolClass.academicYearId ?? '',
+        classTeacherId: schoolClass.classTeacherId ?? '',
       });
     } else {
       const current = years?.find((y: any) => y.isCurrent) ?? years?.[0];
@@ -303,7 +327,11 @@ function ClassModal({
         description: form.description || undefined,
         level: form.level ? Number(form.level) : undefined,
       };
-      if (isEdit) return (await api.patch(`/classes/${schoolClass.id}`, payload)).data;
+      // Only sent on edit: the picker needs a saved class to attach to.
+      if (isEdit) {
+        payload.classTeacherId = form.classTeacherId || null;
+        return (await api.patch(`/classes/${schoolClass.id}`, payload)).data;
+      }
       return (
         await api.post('/classes', {
           ...payload,
@@ -378,6 +406,26 @@ function ClassModal({
             </select>
           </Field>
         </div>
+      )}
+
+      {isEdit && (
+        <Field
+          label="Class teacher"
+          hint="The teacher answerable for this class as a whole, separate from its subject teachers."
+        >
+          <select
+            className="input"
+            value={form.classTeacherId}
+            onChange={(e) => setForm({ ...form, classTeacherId: e.target.value })}
+          >
+            <option value="">Not assigned</option>
+            {teachers?.items?.map((t: any) => (
+              <option key={t.id} value={t.id}>
+                {t.fullName}
+              </option>
+            ))}
+          </select>
+        </Field>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
